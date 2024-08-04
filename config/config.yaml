@@ -1,8 +1,11 @@
+# feature-level dpo related
+
+
 # random seed for batch sampling
-seed: 0
+seed: 39
 
 # name for this experiment in the local run directory and on wandb
-exp_name: ???
+exp_name: feature-level-dpo
 
 # the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
 batch_size: 4
@@ -14,7 +17,7 @@ eval_batch_size: 16
 debug: false
 
 # the port to use for FSDP
-fsdp_port: null
+# fsdp_port: null
 
 # which dataset(s) to train on; can pass a list like datasets=[hh,shp]
 datasets:
@@ -29,10 +32,7 @@ wandb:
 # to create the local run directory and cache models/datasets,
 #   we will try each of these directories in order; if none exist,
 #   we will create the last one and use it
-local_dirs:
-  - /scr-ssd
-  - /scr
-  - .cache
+local_dirs: .cache
 
 # whether or not to generate samples during evaluation; disable for FSDP/TensorParallel
 #   is recommended, because they are slow
@@ -45,7 +45,7 @@ n_eval_model_samples: 16
 do_first_eval: true
 
 # an OmegaConf resolver that returns the local run directory, calling a function in utils.py
-local_run_dir: ${get_local_run_dir:${exp_name},${local_dirs}}
+local_run_dir: null
 
 # the learning rate
 lr: 5e-7
@@ -91,7 +91,13 @@ eval_every: 20_000
 # prevent wandb from logging more than once per minimum_log_interval_secs
 minimum_log_interval_secs: 1.0
 
+# how many gpus will be used during training process
+devices: 4
+
+# precision
+precision: 16-mixed
+
 defaults:
 - _self_
-- model: blank_model_fp32 # basic model configuration
-- loss: sft # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- model: gemma-2b # basic model configuration
+- loss: dpo # which loss function, either sft or dpo (specify loss.beta if using dpo)

@@ -208,9 +208,9 @@ class BasicTrainer(object):
         return policy_output_decoded, reference_output_decoded
     
     def concatenated_forward(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]]) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
-        """
-            Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together
-            We do this to avoid doing two forward passes, because it's faster for FSDP.
+        """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+        
+           We do this to avoid doing two forward passes, because it's faster for FSDP.
         """
         concatenated_batch = concatenated_inputs(batch)
         all_logits = model(concatenated_batch['concatenated_input_ids'], attention_mask=concatenated_batch['concatenated_attention_mask']).logits.to(torch.float32)
@@ -218,6 +218,7 @@ class BasicTrainer(object):
         chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]]
         rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:]
         return chosen_logps, rejected_logps
+
 
     def get_batch_metrics(self, batch: Dict[str, Union[List, torch.LongTensor]], loss_config: DictConfig, train=True):
         """Compute the SFT or DPO loss and other metrics for the given batch of inputs."""
