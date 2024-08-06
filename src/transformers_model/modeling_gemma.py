@@ -627,7 +627,7 @@ class GemmaDecoderLayer(nn.Module):
 
         if self.sae_encoder is not None:
             # encode the post activation
-            feature_acts = self.sae_encoder(hidden_states)
+            feature_acts = self.sae_encoder.encode(hidden_states)
         else: feature_acts = None
 
         hidden_states = residual + hidden_states
@@ -894,7 +894,7 @@ class GemmaModel(GemmaPreTrainedModel):
                     cache_position,
                 )
             else:
-                layer_outputs, feature_acts = decoder_layer(
+                layer_outputs, feature_acts_ = decoder_layer(
                     hidden_states,
                     attention_mask=causal_mask,
                     position_ids=position_ids,
@@ -903,6 +903,8 @@ class GemmaModel(GemmaPreTrainedModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                 )
+                if feature_acts_ is not None:
+                    feature_acts = feature_acts_
 
             hidden_states = layer_outputs[0]
 
@@ -1113,13 +1115,7 @@ class GemmaForCausalLM(GemmaPreTrainedModel):
             output = (logits,) + outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return CausalLMOutputWithPast(
-            loss=loss,
-            logits=logits,
-            past_key_values=outputs.past_key_values,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        ), feature_acts
+        return logits, feature_acts
 
     def prepare_inputs_for_generation(
         self,

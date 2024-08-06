@@ -8,7 +8,7 @@ seed: 39
 exp_name: feature-level-dpo
 
 # the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
-batch_size: 4
+batch_size: 1
 
 # the batch size during evaluation and sampling, if enabled
 eval_batch_size: 16
@@ -20,8 +20,7 @@ debug: false
 # fsdp_port: null
 
 # which dataset(s) to train on; can pass a list like datasets=[hh,shp]
-datasets:
-- hh
+datasets: "HuggingFaceH4/ultrafeedback_binarized"
 
 # wandb configuration
 wandb:
@@ -53,7 +52,7 @@ lr: 5e-7
 # number of steps to accumulate over for each batch
 #   (e.g. if batch_size=4 and gradient_accumulation_steps=2, then we will
 #   accumulate gradients over 2 microbatches of size 2)
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 8
 
 # the maximum gradient norm to clip to
 max_grad_norm: 10.0
@@ -83,7 +82,7 @@ optimizer: RMSprop
 warmup_steps: 150
 
 # whether or not to use activation/gradient checkpointing
-activation_checkpointing: false
+activation_checkpointing: true
 
 # evaluate and save model every eval_every steps
 eval_every: 20_000

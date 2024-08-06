@@ -4,3 +4,5 @@ results
 .vscode
 .cache
 test
+wandb
+cache

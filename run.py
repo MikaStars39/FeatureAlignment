@@ -1,7 +1,7 @@
 import torch
 torch.backends.cuda.matmul.allow_tf32 = True
-import transformers
 import os
+os.environ['XDG_CACHE_HOME'] = "cache"
 import time
 import hydra
 import wandb
@@ -10,10 +10,14 @@ import torch.distributed as dist
 
 from omegaconf import OmegaConf, DictConfig
 from lightning.pytorch.strategies import FSDPStrategy, DDPStrategy
+from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
+from lightning.pytorch.loggers import WandbLogger
 from typing import Set
 from utils import get_local_run_dir
 from src.model import FeatureLevelDPOModel
-
+from transformers import AutoTokenizer
+from datasets import load_dataset
+from huggingface_hub import login
 
 
 OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
@@ -44,6 +48,28 @@ OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs
 #     trainer.train()
 #     trainer.save()
 
+def load_data(config: DictConfig):
+    batch_size = config.batch_size
+
+    train_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="train_prefs")
+    test_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="test_prefs")
+
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=False
+    )
+
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False
+    )
+
+    print("Data loaders are ready.")
+    return train_dataloader, test_dataloader
+
+@rank_zero_only
 def check_and_modify_config(config: DictConfig):
 
     # ---------- check config ---------------
@@ -111,8 +137,18 @@ def main(config: DictConfig):
     OmegaConf.resolve(config)
     check_and_modify_config(config)
 
+    login(token="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")
+
     # seed everything
     L.seed_everything(config.seed)
+
+    # create a run name with name and time
+    current_time = time.localtime()
+    run_name = f"feature-level-dpo_{current_time.tm_year}-{current_time.tm_mon}-{current_time.tm_mday}-" \
+    f"{current_time.tm_hour}-{current_time.tm_min}-{current_time.tm_sec}"
+    wandb_logger = WandbLogger(project='feature-level-dpo', name=run_name)
+
+    train_dataloader, test_dataloader = load_data(config)
 
     # load model
     print("-------- loading model -----------")
@@ -140,7 +176,7 @@ def main(config: DictConfig):
         devices=config.devices,
         # num_nodes=args.num_nodes,
         precision=config.precision,
-        logger="wandb",
+        logger=wandb_logger,
         # callbacks=[train_callback(args)],
         # max_epochs=args.max_epochs,
         # check_val_every_n_epoch=args.check_val_every_n_epoch,
@@ -150,12 +186,9 @@ def main(config: DictConfig):
         accumulate_grad_batches=config.gradient_accumulation_steps,
         gradient_clip_val=config.max_grad_norm,
     )
-
-    # get dataloader
-    dataloader = None
-
+    
     # begin training
-    trainer.fit(model, dataloader)
+    trainer.fit(model, train_dataloader)
 
     # if config.model.archive is not None:
     #     state_dict = torch.load(config.model.archive, map_location='cpu')
