@@ -1,0 +1,30 @@
+# the name of the model to use; should be something like
+#   gpt2-xl or gpt-neo-2.7B or huggyllama/llama-7b
+name_or_path: google/gemma-2-2b
+
+# the name of the tokenizer to use; if null, will use the tokenizer from the model
+tokenizer_name_or_path: google/gemma-2-2b
+
+# override pre-trained weights (e.g., from SFT); optional
+archive: null
+
+# the name of the module class to wrap with FSDP; should be something like
+#   e.g. GPT2Block, GPTNeoXLayer, LlamaDecoderLayer, etc.
+block_name: null
+
+# the dtype for the policy parameters/optimizer state
+policy_dtype: float16
+
+# the mixed precision dtype if using FSDP; defaults to the same as the policy
+fsdp_policy_mp: null
+
+# the dtype for the reference model (which is used for inference only)
+reference_dtype: float16
+
+# sae related
+sae_encoder_name_or_path: google/gemma-scope-2b-pt-res
+sae_id_name_or_path: layer_20/width_16k/average_l0_71/params.npz
+sae_position: residual
+sae_layer_id: 20
+
+
