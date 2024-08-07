@@ -176,7 +176,7 @@ class FeatureLevelDPOModel(L.LightningModule):
         # label_smoothing=self.config.loss.label_smoothing,
         beta=self.config.loss.beta
 
-        logits = (feature_acts_chosen.mean(dim=1) - feature_acts_rejected.mean(dim=1))
+        logits = (feature_acts_chosen.sum(dim=-1).mean(dim=1) - feature_acts_rejected.sum(dim=-1).mean(dim=1))
         # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
         losses = -F.logsigmoid(logits)
 
@@ -187,10 +187,8 @@ class FeatureLevelDPOModel(L.LightningModule):
         reference_chosen_logps_softmax = F.softmax(reference_chosen_logps, dim=-1) + 1e-5
 
         losses = losses - beta * F.kl_div(policy_chosen_logps_softmax.log(), reference_chosen_logps_softmax)
-        if torch.isnan(losses).any():
-            raise ValueError("nan in losses")
 
-        return losses.mean()
+        return losses
 
         # loss, chosen_rewards, rejected_rewards = self.feature_level_loss(
         #     feature_acts_chosen=chosen_feature_acts_policy,
