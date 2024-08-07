@@ -186,7 +186,7 @@ class FeatureLevelDPOModel(L.LightningModule):
         policy_chosen_logps_softmax = F.softmax(policy_chosen_logps, dim=-1) + 1e-5
         reference_chosen_logps_softmax = F.softmax(reference_chosen_logps, dim=-1) + 1e-5
 
-        losses = losses - beta * F.kl_div(policy_chosen_logps_softmax.log(), reference_chosen_logps_softmax)
+        losses = losses + beta * F.kl_div(policy_chosen_logps_softmax.log(), reference_chosen_logps_softmax)
         self.log("loss", losses, prog_bar=True, on_step=True)
 
         return losses
