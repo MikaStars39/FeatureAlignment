@@ -186,6 +186,7 @@ def main(config: DictConfig):
         enable_checkpointing=config.activation_checkpointing,
         accumulate_grad_batches=config.gradient_accumulation_steps,
         gradient_clip_val=config.max_grad_norm,
+        log_every_n_steps=config.log_every_n_steps,
         callbacks=[train_callback(config=config)],
     )
     

@@ -31,7 +31,7 @@ class train_callback(L.Callback):
             trainer.my_lr = lr
 
             trainer.my_time_ns = t_now
-            trainer.my_loss = outputs["loss"]
+            trainer.my_loss = outputs["loss"] * config.gradient_accumulation_steps
             self.log("lr", trainer.my_lr, prog_bar=True, on_step=True)
             # self.log("s", real_step, prog_bar=True, on_step=True)
 

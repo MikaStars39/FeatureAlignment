@@ -89,10 +89,12 @@ eval_every: 20_000
 minimum_log_interval_secs: 1.0
 
 # how many gpus will be used during training process
-devices: 4
+devices: 2
 
 # precision
 precision: 16-mixed
+
+log_every_n_steps: 1
 
 defaults:
 - _self_
