@@ -181,8 +181,26 @@ class FeatureLevelDPOModel(L.LightningModule):
             chosen[i]['role'] = chosen[i]['role'][0]
             rejected[i]['role'] = rejected[i]['role'][0]
 
-        chosen = self.tokenizer.apply_chat_template(chosen, return_tensors="pt", padding=True, return_dict=True, padding_side="left", device=self.device)
-        rejected = self.tokenizer.apply_chat_template(rejected, return_tensors="pt", padding=True, return_dict=True, padding_side="left", device=self.device)
+        chosen = self.tokenizer.apply_chat_template(
+            chosen, 
+            return_tensors="pt", 
+            padding=True, 
+            return_dict=True, 
+            truncation=True,
+            max_length=self.config.max_length,
+            padding_side="left", 
+            device=self.device
+        )
+        rejected = self.tokenizer.apply_chat_template(
+            rejected, 
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True,
+            max_length=self.config.max_length,
+            return_dict=True, 
+            padding_side="left", 
+            device=self.device
+        )
         
         # move the batch to the device
         chosen['input_ids'] = chosen['input_ids'].to(self.device)
@@ -193,8 +211,6 @@ class FeatureLevelDPOModel(L.LightningModule):
         # get the features and output logits
         chosen_logits_policy, chosen_feature_acts_policy = self.policy(**chosen)
         rejected_logits_policy, rejected_feature_acts_policy = self.policy(**rejected)
-        chosen_logits_reference, chosen_feature_acts_reference = self.reference(**chosen)
-        rejected_logits_reference, rejected_feature_acts_reference = self.reference(**rejected)
 
         # print all the shape with rank_zero_info
         # rank_zero_info(f'chosen_logits_policy: {chosen_logits_policy}')
@@ -206,8 +222,13 @@ class FeatureLevelDPOModel(L.LightningModule):
         feature_acts_rejected = rejected_feature_acts_policy.float()
         policy_chosen_logps=chosen_logits_policy.float()
         policy_rejected_logps=rejected_logits_policy.float()
-        reference_chosen_logps=chosen_logits_reference.float()
-        reference_rejected_logps=rejected_logits_reference.float()
+
+        with torch.no_grad():
+            chosen_logits_reference, chosen_feature_acts_reference = self.reference(**chosen)
+            rejected_logits_reference, rejected_feature_acts_reference = self.reference(**rejected)
+            reference_chosen_logps=chosen_logits_reference.float()
+            reference_rejected_logps=rejected_logits_reference.float()
+
         # label_smoothing=self.config.loss.label_smoothing,
         beta=self.config.loss.beta
 
@@ -237,7 +258,7 @@ class FeatureLevelDPOModel(L.LightningModule):
         #     beta=self.config.loss.beta,
         # )
 
-        self.log('loss', losses)
+        self.log('loss', losses.item())
 
         return losses
 
