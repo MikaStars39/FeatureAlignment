@@ -47,24 +47,24 @@ do_first_eval: true
 local_run_dir: null
 
 # the learning rate
-lr: 5e-7
+lr_begin: 0
+lr_final: 5e-6 
+warmup_steps: 150 # number of linear warmup steps for the learning rate
 
 # number of steps to accumulate over for each batch
 #   (e.g. if batch_size=4 and gradient_accumulation_steps=2, then we will
 #   accumulate gradients over 2 microbatches of size 2)
 gradient_accumulation_steps: 8
-
-# the maximum gradient norm to clip to
-max_grad_norm: 10.0
+max_grad_norm: 10.0 # the maximum gradient norm to clip to
 
 # the maximum allowed length for an input (prompt + response)
 max_length: 1024
-
-# the maximum allowed length for a prompt
-max_prompt_length: 256
+max_prompt_length: 256 # the maximum allowed length for a prompt
 
 # the number of epochs to train for; if null, must specify n_examples
 n_epochs: 1
+epoch_begin: 0
+epoch_steps: 200_000
 
 # the number of examples to train for; if null, must specify n_epochs
 n_examples: null
@@ -78,8 +78,6 @@ trainer: BasicTrainer
 # The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
 optimizer: RMSprop
 
-# number of linear warmup steps for the learning rate
-warmup_steps: 150
 
 # whether or not to use activation/gradient checkpointing
 activation_checkpointing: true
@@ -98,5 +96,5 @@ precision: 16-mixed
 
 defaults:
 - _self_
-- model: gemma-2b # basic model configuration
+- model: gemma-2-2b # basic model configuration
 - loss: dpo # which loss function, either sft or dpo (specify loss.beta if using dpo)

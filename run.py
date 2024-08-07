@@ -13,11 +13,12 @@ from lightning.pytorch.strategies import FSDPStrategy, DDPStrategy
 from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
 from lightning.pytorch.loggers import WandbLogger
 from typing import Set
-from utils import get_local_run_dir
-from src.model import FeatureLevelDPOModel
 from transformers import AutoTokenizer
 from datasets import load_dataset
 from huggingface_hub import login
+from dpo.utils import get_local_run_dir
+from src.model import FeatureLevelDPOModel
+from src.trainer import train_callback
 
 
 OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
@@ -66,7 +67,7 @@ def load_data(config: DictConfig):
         shuffle=False
     )
 
-    print("Data loaders are ready.")
+    rank_zero_info("Data loaders are ready.")
     return train_dataloader, test_dataloader
 
 @rank_zero_only
@@ -151,7 +152,7 @@ def main(config: DictConfig):
     train_dataloader, test_dataloader = load_data(config)
 
     # load model
-    print("-------- loading model -----------")
+    rank_zero_info("-------- loading model -----------")
     model = FeatureLevelDPOModel(config=config)
 
     # wandb settings
@@ -171,8 +172,8 @@ def main(config: DictConfig):
     
     # get trainer
     trainer = L.Trainer(
-        accelerator="cuda", 
-        strategy=FSDPStrategy() if "FSDP" in config.trainer else DDPStrategy(),
+        accelerator="gpu", 
+        strategy="deepspeed_stage_2",
         devices=config.devices,
         # num_nodes=args.num_nodes,
         precision=config.precision,
@@ -185,6 +186,7 @@ def main(config: DictConfig):
         enable_checkpointing=config.activation_checkpointing,
         accumulate_grad_batches=config.gradient_accumulation_steps,
         gradient_clip_val=config.max_grad_norm,
+        callbacks=[train_callback(config=config)],
     )
     
     # begin training

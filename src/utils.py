@@ -1,4 +1,4 @@
-
+import torch
 def disable_dropout(model: torch.nn.Module):
     """Disable dropout in a model."""
     for module in model.modules():
