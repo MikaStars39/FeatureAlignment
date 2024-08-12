@@ -12,6 +12,7 @@ from omegaconf import OmegaConf, DictConfig
 from lightning.pytorch.strategies import FSDPStrategy, DDPStrategy
 from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
 from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.callbacks import ModelCheckpoint
 from typing import Set
 from transformers import AutoTokenizer
 from datasets import load_dataset
@@ -187,7 +188,15 @@ def main(config: DictConfig):
         accumulate_grad_batches=config.gradient_accumulation_steps,
         gradient_clip_val=config.max_grad_norm,
         log_every_n_steps=config.log_every_n_steps,
-        callbacks=[train_callback(config=config)],
+        callbacks=[
+            train_callback(config=config),
+            ModelCheckpoint(
+                dirpath=config.result_dir,
+                every_n_train_steps=config.save_steps,
+                filename=run_name + '{epoch}-{step}',
+                save_top_k=-1
+            ),
+        ],
     )
     
     # begin training

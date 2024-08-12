@@ -180,10 +180,11 @@ class FeatureLevelDPOModel(L.LightningModule):
         # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
         losses = -F.logsigmoid(logits)
 
-        chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach().mean()
-        rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach().mean()
-        reward_accuracies = (chosen_rewards > rejected_rewards).float().mean()
-        reward_margins = (chosen_rewards - rejected_rewards).mean()
+        with torch.no_grad():
+            chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach().mean(dim=1)
+            rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach().mean(dim=1)
+            reward_accuracies = (chosen_rewards > rejected_rewards).float().mean()
+            reward_margins = (chosen_rewards - rejected_rewards).mean().float()
 
         policy_chosen_logps_softmax = F.softmax(policy_chosen_logps, dim=-1) + 1e-5
         reference_chosen_logps_softmax = F.softmax(reference_chosen_logps, dim=-1) + 1e-5
@@ -192,10 +193,10 @@ class FeatureLevelDPOModel(L.LightningModule):
         
         self.log("loss", losses, prog_bar=True, on_step=True)
 
-        self.log("chosen_rewards", chosen_rewards, prog_bar=True, on_step=True)
-        self.log("rejected_rewards", rejected_rewards, prog_bar=True, on_step=True)
-        self.log("reward_accuracies", reward_accuracies, prog_bar=True, on_step=True)
-        self.log("reward_margins", reward_margins, prog_bar=True, on_step=True)
+        # self.log("chosen_rewards", chosen_rewards, prog_bar=True, on_step=True)
+        # self.log("rejected_rewards", rejected_rewards, prog_bar=True, on_step=True)
+        self.log("reward_accuracies", reward_accuracies, prog_bar=False, on_step=True)
+        self.log("reward_margins", reward_margins, prog_bar=False, on_step=True)
 
         return losses
 
