@@ -20,6 +20,8 @@ from huggingface_hub import login
 from dpo.utils import get_local_run_dir
 from src.model import FeatureLevelDPOModel
 from src.trainer import train_callback
+from src.transformers_model.modeling_gemma2 import Gemma2DecoderLayer
+from torch.distributed.fsdp import MixedPrecision
 
 
 OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
@@ -148,18 +150,31 @@ def main(config: DictConfig):
     current_time = time.localtime()
     run_name = f"feature-level-dpo_{current_time.tm_year}-{current_time.tm_mon}-{current_time.tm_mday}-" \
     f"{current_time.tm_hour}-{current_time.tm_min}-{current_time.tm_sec}"
-    wandb_logger = WandbLogger(project='feature-level-dpo', name=run_name)
+    wandb_logger = None if config.debug else WandbLogger(project='feature-level-dpo', name=run_name)
 
     train_dataloader, test_dataloader = load_data(config)
 
     # load model
     rank_zero_info("-------- loading model -----------")
     model = FeatureLevelDPOModel(config=config)
+    model_checkpoint = ModelCheckpoint(
+            dirpath=config.result_dir,
+            every_n_train_steps=config.save_steps,
+            filename=run_name + '{epoch}-{step}',
+            save_top_k=-1
+        )
 
     # wandb settings
     if config.debug:
         wandb.init = lambda *args, **kwargs: None
         wandb.log = lambda *args, **kwargs: None
+        callback = [
+            train_callback(config=config)
+        ]
+    else:
+        callback = [
+            train_callback(config=config), model_checkpoint
+        ]
 
     # rank = int(os.environ["RANK"])
     # if rank == 0 and config.wandb.enabled:
@@ -171,10 +186,17 @@ def main(config: DictConfig):
     #         name=config.exp_name,
     #     )
     
+    # fsdp_strategy = FSDPStrategy(
+    #     sharding_strategy="SHARD_GRAD_OP",
+    #     # mixed_precision=MixedPrecision(
+    #     #     param_dtype=torch.float16
+    #     # ),
+    # )
+
     # get trainer
     trainer = L.Trainer(
         accelerator="gpu", 
-        strategy="deepspeed_stage_2",
+        strategy="deepspeed_stage_1",
         devices=config.devices,
         # num_nodes=args.num_nodes,
         precision=config.precision,
@@ -190,12 +212,7 @@ def main(config: DictConfig):
         log_every_n_steps=config.log_every_n_steps,
         callbacks=[
             train_callback(config=config),
-            ModelCheckpoint(
-                dirpath=config.result_dir,
-                every_n_train_steps=config.save_steps,
-                filename=run_name + '{epoch}-{step}',
-                save_top_k=-1
-            ),
+            model_checkpoint,
         ],
     )
     

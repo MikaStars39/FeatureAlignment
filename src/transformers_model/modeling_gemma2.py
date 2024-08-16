@@ -606,6 +606,7 @@ class Gemma2DecoderLayer(nn.Module):
         hidden_states = self.post_feedforward_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
+        feature_acts = None
         if self.sae_encoder is not None:
             feature_acts = self.sae_encoder.encode(hidden_states)
 

@@ -13,6 +13,10 @@ from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
 from .utils import disable_dropout
 from .sae import replace_sae_with_reture_feature_acts
 from .jump_relu_sae import JumpReLUSAE
+from .metric import (
+    tdpo_loss,
+    dpo_loss
+)
 from huggingface_hub import hf_hub_download
 from typing import (
     Any, 
@@ -27,7 +31,7 @@ from typing import (
     List
 )
 
-from .transformers_model.modeling_gemma import GemmaForCausalLM
+from .transformers_model.modeling_gemma2 import Gemma2ForCausalLM
 
 # define the LightningModule
 class FeatureLevelDPOModel(L.LightningModule):
@@ -37,79 +41,81 @@ class FeatureLevelDPOModel(L.LightningModule):
     ):
         super().__init__()
         self.config = config
-        self.load_model()
+        self.policy = None
+        self.reference = None
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained("google/gemma-2b-it")
 
-    
-    def load_model(
-        self,
-    ):
-        # ---------- load policy and reference model -------------
-        # policy model
-        rank_zero_info('building policy model into lightning model')
-        # model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
-        policy_dtype = getattr(torch, self.config.model.policy_dtype)
-        self.policy = GemmaForCausalLM.from_pretrained(
-            self.config.model.name_or_path, 
-            low_cpu_mem_usage=True, 
-            # torch_dtype=policy_dtype,
-            # **model_kwargs
-        )
-        disable_dropout(self.policy)
-        rank_zero_info('successfully built policy model into lightning model')
-
-        # reference model
-        rank_zero_info('building reference model')
-        reference_model_dtype = getattr(torch, self.config.model.reference_dtype)
-        self.reference = GemmaForCausalLM.from_pretrained(
-            self.config.model.name_or_path, 
-            low_cpu_mem_usage=True, 
-            # torch_dtype=reference_model_dtype
-        )
-        disable_dropout(self.reference)
-
-        rank_zero_info('successfully built reference model')
-
-        rank_zero_info('building sae model')
-        if "gemma-scope-2b" in self.config.model.sae_encoder_name_or_path:
-            path_to_params = hf_hub_download(
-                repo_id=self.config.model.sae_encoder_name_or_path,
-                filename=self.config.model.sae_id_name_or_path,
-                force_download=False,
-            )
-            params = np.load(path_to_params)
-            pt_params = {k: torch.from_numpy(v).cuda() for k, v in params.items()}
-            sae_encoder = JumpReLUSAE(params['W_enc'].shape[0], params['W_enc'].shape[1])
-            sae_encoder.load_state_dict(pt_params)
-
+    def configure_model(self):
+        if self.policy is not None or self.reference is not None:
+            return
         else:
-            sae_encoder = replace_sae_with_reture_feature_acts()
-            sae_encoder, _, _ = sae_encoder.from_pretrained(
-                release = self.config.model.sae_encoder_name_or_path, # see other options in sae_lens/pretrained_saes.yaml
-                sae_id = self.config.model.sae_id_name_or_path, # won't always be a hook point
+            # ---------- load policy and reference model -------------
+            # policy model
+            rank_zero_info('building policy model into lightning model')
+            # model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
+            policy_dtype = getattr(torch, self.config.model.policy_dtype)
+            self.policy = Gemma2ForCausalLM.from_pretrained(
+                self.config.model.name_or_path, 
+                # low_cpu_mem_usage=True, 
+                # torch_dtype=policy_dtype,
+                # **model_kwargs
             )
-            rank_zero_info( self.policy.model.layers[self.config.model.sae_layer_id])
-        
-        self.policy.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
-        self.reference.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
-        rank_zero_info('successfully built sae model')
+            disable_dropout(self.policy)
+            rank_zero_info('successfully built policy model into lightning model')
 
-        for name, param in self.policy.named_parameters():
-            if 'sae' in name:
+            # reference model
+            rank_zero_info('building reference model')
+            reference_model_dtype = getattr(torch, self.config.model.reference_dtype)
+            self.reference = Gemma2ForCausalLM.from_pretrained(
+                self.config.model.name_or_path, 
+                low_cpu_mem_usage=True, 
+                # torch_dtype=reference_model_dtype
+            )
+            disable_dropout(self.reference)
+
+            rank_zero_info('successfully built reference model')
+
+            rank_zero_info('building sae model')
+
+            if "gemma-scope-2b" in self.config.model.sae_encoder_name_or_path:
+                path_to_params = hf_hub_download(
+                    repo_id=self.config.model.sae_encoder_name_or_path,
+                    filename=self.config.model.sae_id_name_or_path,
+                    force_download=False,
+                )
+                params = np.load(path_to_params)
+                pt_params = {k: torch.from_numpy(v).cuda() for k, v in params.items()}
+                sae_encoder = JumpReLUSAE(params['W_enc'].shape[0], params['W_enc'].shape[1])
+                sae_encoder.load_state_dict(pt_params)
+
+            else:
+                sae_encoder = replace_sae_with_reture_feature_acts()
+                sae_encoder, _, _ = sae_encoder.from_pretrained(
+                    release = self.config.model.sae_encoder_name_or_path, # see other options in sae_lens/pretrained_saes.yaml
+                    sae_id = self.config.model.sae_id_name_or_path, # won't always be a hook point
+                )
+                rank_zero_info( self.policy.model.layers[self.config.model.sae_layer_id])
+            
+            self.policy.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
+            self.reference.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
+            rank_zero_info('successfully built sae model')
+
+            for name, param in self.policy.named_parameters():
+                if 'sae' in name:
+                    param.requires_grad = False
+
+            # print all submodules of policy and reference model
+            rank_zero_info('policy model submodules:')
+            for name, module in self.policy.named_modules():
+                rank_zero_info(f'{name}')
+            rank_zero_info('reference model submodules:')
+            for name, module in self.reference.named_modules():
+                rank_zero_info(f'{name}')
+            
+            # for dpo, we set the reference model to be eval mode
+            for param in self.reference.parameters():
                 param.requires_grad = False
 
-        # print all submodules of policy and reference model
-        rank_zero_info('policy model submodules:')
-        for name, module in self.policy.named_modules():
-            rank_zero_info(f'{name}')
-        rank_zero_info('reference model submodules:')
-        for name, module in self.reference.named_modules():
-            rank_zero_info(f'{name}')
-        
-        # for dpo, we set the reference model to be eval mode
-        for param in self.reference.parameters():
-            param.requires_grad = False
-
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained("google/gemma-2b-it")
         
     def training_step(
         self, 
@@ -149,67 +155,90 @@ class FeatureLevelDPOModel(L.LightningModule):
         rejected['attention_mask'] = rejected['attention_mask'].to(self.device)
 
         # get the features and output logits
-        chosen_logits_policy, chosen_feature_acts_policy = self.policy(**chosen)
-        rejected_logits_policy, rejected_feature_acts_policy = self.policy(**rejected)
+        chosen_logits_policy, chosen_feature_acts_policy = self.policy(**chosen, use_cache=False)
+        rejected_logits_policy, rejected_feature_acts_policy = self.policy(**rejected, use_cache=False)
 
-        # check if nan in logits and policy
         if torch.isnan(chosen_logits_policy).any() or torch.isnan(chosen_feature_acts_policy).any() or torch.isnan(rejected_logits_policy).any() or torch.isnan(rejected_feature_acts_policy).any():
             raise ValueError("nan in logits or feature_acts")
 
-        # print all the shape with rank_zero_info
-        # rank_zero_info(f'chosen_logits_policy: {chosen_logits_policy}')
-        # rank_zero_info(f'chosen_feature_acts_policy: {chosen_feature_acts_policy}')
-        # rank_zero_info(f'rejected_logits_policy: {rejected_logits_policy}')
-        # rank_zero_info(f'rejected_feature_acts_policy: {rejected_feature_acts_policy}')
-
         feature_acts_chosen = chosen_feature_acts_policy.float()
         feature_acts_rejected = rejected_feature_acts_policy.float()
-        policy_chosen_logps=chosen_logits_policy.float()
-        policy_rejected_logps=rejected_logits_policy.float()
+        policy_chosen_logps = chosen_logits_policy.float()
+        policy_rejected_logps = rejected_logits_policy.float()
 
         with torch.no_grad():
-            chosen_logits_reference, chosen_feature_acts_reference = self.reference(**chosen)
-            rejected_logits_reference, rejected_feature_acts_reference = self.reference(**rejected)
-            reference_chosen_logps=chosen_logits_reference.float()
-            reference_rejected_logps=rejected_logits_reference.float()
+            chosen_logits_reference, chosen_feature_acts_reference = self.reference(**chosen, use_cache=False)
+            rejected_logits_reference, rejected_feature_acts_reference = self.reference(**rejected, use_cache=False)
+            reference_chosen_logps = chosen_logits_reference.float()
+            reference_rejected_logps = rejected_logits_reference.float()
 
-        # label_smoothing=self.config.loss.label_smoothing,
-        beta=self.config.loss.beta
+        # Compute TDPO loss or other loss
+        beta = self.config.loss.beta
+        alpha = self.config.loss.alpha
+        sae_lambda = self.config.loss.sae_lambda
 
-        logits = (feature_acts_chosen.mean(dim=1) - feature_acts_rejected.mean(dim=1)).sum(dim=-1)
-        # Eq. 3 https://ericmitchell.ai/cdpo.pdf; label_smoothing=0 gives original DPO (Eq. 7 of https://arxiv.org/pdf/2305.18290.pdf)
-        losses = -F.logsigmoid(logits)
+        if self.config.loss.name == "dpo":
+            losses, chosen_rewards, rejected_rewards = dpo_loss(
+                feature_acts_chosen=feature_acts_chosen,
+                feature_acts_rejected=feature_acts_rejected,
+                policy_chosen_logps=policy_chosen_logps,
+                reference_chosen_logps=reference_chosen_logps,
+                beta=beta,
+            )
+        elif self.config.loss.name == "tdpo":
+            losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = tdpo_loss(
+                policy_chosen_logps[:, :-1, :],
+                reference_chosen_logps[:, :-1, :],
+                policy_rejected_logps[:, :-1, :],
+                reference_rejected_logps[:, :-1, :],
+                feature_acts_chosen=feature_acts_chosen,
+                feature_acts_rejected=feature_acts_rejected,
+                c_labels=chosen['input_ids'][:, 1:],
+                r_labels=rejected['input_ids'][:, 1:],
+                beta=beta,
+                alpha=alpha,
+                sae_lambda=sae_lambda,
+                if_tdpo2=True,
+                if_sae=self.config.loss.sae
+            )
+        else: raise ValueError("loss name not recognized")
 
-        with torch.no_grad():
-            chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach().mean(dim=1)
-            rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach().mean(dim=1)
-            reward_accuracies = (chosen_rewards > rejected_rewards).float().mean()
-            reward_margins = (chosen_rewards - rejected_rewards).mean().float()
+        reward_accuracies = (chosen_rewards > rejected_rewards).float().mean()
+        reward_margins = (chosen_rewards - rejected_rewards).float().mean()
 
-        policy_chosen_logps_softmax = F.softmax(policy_chosen_logps, dim=-1) + 1e-5
-        reference_chosen_logps_softmax = F.softmax(reference_chosen_logps, dim=-1) + 1e-5
+        # Log metrics
 
-        losses = losses + beta * F.kl_div(policy_chosen_logps_softmax.log(), reference_chosen_logps_softmax)
-        
-        self.log("loss", losses, prog_bar=True, on_step=True)
+        # Return all necessary metrics for callback use
+        return {
+            "loss": losses,
+            "chosen_rewards": float(chosen_rewards.detach().mean()),
+            "rejected_rewards": float(rejected_rewards.detach().mean()),
+            "reward_accuracies": float(reward_accuracies.detach()),
+            "reward_margins": float(reward_margins.detach()),
+            "kl_chosen": float(chosen_kl.detach()),
+            "kl_rejected": float(rejected_kl.detach()),
+            # "logps_chosen": float(policy_chosen_logps.detach()),
+            # "logps_rejected": float(policy_rejected_logps.detach()),
 
-        # self.log("chosen_rewards", chosen_rewards, prog_bar=True, on_step=True)
-        # self.log("rejected_rewards", rejected_rewards, prog_bar=True, on_step=True)
-        self.log("reward_accuracies", reward_accuracies, prog_bar=False, on_step=True)
-        self.log("reward_margins", reward_margins, prog_bar=False, on_step=True)
+            # "rejected_rewards": rejected_rewards.detach().cpu().numpy(),
+            # "reward_accuracies": reward_accuracies.detach().cpu().numpy(),
+            # "reward_margins": reward_margins.detach().cpu().numpy(),
+            # "kl_chosen": feature_acts_chosen.detach().cpu().numpy(),
+            # "kl_rejected": feature_acts_rejected.detach().cpu().numpy(),
+            # "logps_chosen": policy_chosen_logps.detach().cpu().numpy(),
+            # "logps_rejected": policy_rejected_logps.detach().cpu().numpy(),
+        }
 
-        return losses
-
-        # loss, chosen_rewards, rejected_rewards = self.feature_level_loss(
-        #     feature_acts_chosen=chosen_feature_acts_policy,
-        #     feature_acts_rejected=rejected_feature_acts_policy,
-        #     policy_chosen_logps=chosen_logits_policy,
-        #     policy_rejected_logps=rejected_logits_policy,
-        #     reference_chosen_logps=chosen_logits_reference,
-        #     reference_rejected_logps=rejected_logits_reference,
-        #     # label_smoothing=self.config.loss.label_smoothing,
-        #     beta=self.config.loss.beta,
-        # )
+            # loss, chosen_rewards, rejected_rewards = self.feature_level_loss(
+            #     feature_acts_chosen=chosen_feature_acts_policy,
+            #     feature_acts_rejected=rejected_feature_acts_policy,
+            #     policy_chosen_logps=chosen_logits_policy,
+            #     policy_rejected_logps=rejected_logits_policy,
+            #     reference_chosen_logps=chosen_logits_reference,
+            #     reference_rejected_logps=rejected_logits_reference,
+            #     # label_smoothing=self.config.loss.label_smoothing,
+            #     beta=self.config.loss.beta,
+            # )
 
 
     def configure_optimizers(self):

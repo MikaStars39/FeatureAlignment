@@ -54,7 +54,7 @@ warmup_steps: 150 # number of linear warmup steps for the learning rate
 # number of steps to accumulate over for each batch
 #   (e.g. if batch_size=4 and gradient_accumulation_steps=2, then we will
 #   accumulate gradients over 2 microbatches of size 2)
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 16
 max_grad_norm: 10.0 # the maximum gradient norm to clip to
 
 # the maximum allowed length for an input (prompt + response)
@@ -90,7 +90,7 @@ eval_every: 20_000
 minimum_log_interval_secs: 1.0
 
 # how many gpus will be used during training process
-devices: 4
+devices: 2
 
 # precision
 precision: 16-mixed
@@ -102,4 +102,4 @@ log_every_n_steps: 1
 defaults:
 - _self_
 - model: gemma-2-2b # basic model configuration
-- loss: dpo # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- loss: tdpo # which loss function, either sft or dpo (specify loss.beta if using dpo)

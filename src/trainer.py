@@ -31,7 +31,27 @@ class train_callback(L.Callback):
             trainer.my_lr = lr
 
             trainer.my_time_ns = t_now
-            trainer.my_loss = outputs["loss"] * config.gradient_accumulation_steps
+        #             return {
+        #     "loss": losses,
+        #     "chosen_rewards": chosen_rewards.detach().cpu().numpy().tolist(),
+        #     "rejected_rewards": rejected_rewards.detach().cpu().numpy().tolist(),
+        #     "reward_accuracies": reward_accuracies.detach().cpu().numpy().tolist(),
+        #     "reward_margins": reward_margins.detach().cpu().numpy().tolist(),
+        #     "kl_chosen": feature_acts_chosen.detach().cpu().numpy().tolist(),
+        #     "kl_rejected": feature_acts_rejected.detach().cpu().numpy().tolist(),
+        #     "logps_chosen": policy_chosen_logps.detach().cpu().numpy().tolist(),
+        #     "logps_rejected": policy_rejected_logps.detach().cpu().numpy().tolist(),
+        # }
+
+            self.log("loss", outputs["loss"] * config.gradient_accumulation_steps, prog_bar=True, on_step=True)
+            self.log("chosen_rewards", outputs["chosen_rewards"], prog_bar=False, on_step=True)
+            self.log("rejected_rewards", outputs["rejected_rewards"], prog_bar=False, on_step=True)
+            self.log("reward_accuracies", outputs["reward_accuracies"], prog_bar=False, on_step=True)
+            self.log("reward_margins", outputs["reward_margins"], prog_bar=False, on_step=True)
+            self.log("kl_chosen", outputs["kl_chosen"], prog_bar=False, on_step=True)
+            self.log("kl_rejected", outputs["kl_rejected"], prog_bar=False, on_step=True)
+            # self.log("logps_chosen", outputs["logps_chosen"], prog_bar=False, on_step=True)
+            # self.log("logps_rejected", outputs["logps_rejected"], prog_bar=False, on_step=True)
             self.log("lr", trainer.my_lr, prog_bar=True, on_step=True)
             # self.log("s", real_step, prog_bar=True, on_step=True)
 
