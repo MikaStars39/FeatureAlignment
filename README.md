@@ -1,136 +1,152 @@
-# DPO: Direct Preference Optimization
 
-**New:** in addition to the original DPO algorithm, this repo now supports ['conservative' DPO](https://ericmitchell.ai/cdpo.pdf) and [IPO](https://arxiv.org/pdf/2310.12036.pdf).
+# Human-Aware Loss Functions (HALOs) :innocent:
 
-For conservative DPO, you just need to additionally pass the parameter `loss.label_smoothing=X` for some `X` between 0 and 0.5 when performing DPO training (0 gives the original DPO loss). This parameter is essentially the conservativeness parameter, i.e., the fraction of the training preference data that is incorrect (flipped preference direction). Starting with something like 0.1 might be reasonable, but I haven't tested this yet (and it will depend on the preference dataset).
+This repo allows you to design new **Human-Aware Loss Functions (HALOs)** for aligning LLMs with offline human feedback at scale (read more in our [technical report](assets/report.pdf) or our [full paper](https://arxiv.org/abs/2402.01306)).
+It was used to create Archangel, the largest-ever suite of human-feedback-aligned LLMs, and has been tested at scales from 1B to 30B.
 
-For IPO, just pass `loss=ipo` and `loss.beta=X` for some non-negative `X` (same as with DPO/conservative DPO).
+This repo draws from the excellently written [DPO repo](https://github.com/eric-mitchell/direct-preference-optimization) and has preserved many design choices from the original.
+Some of the key changes we introduced are:
+- making data loading more modular, so that you can easily write your own dataloader
+- making trainers more modular, so that each HALO has its own trainer subclass
+- adding code for doing open-ended evaluation with GPT-4 as a judge
+- supporting losses beyond SFT and DPO (including KTO, PPO (offline, off-policy variant), and SLiC)
 
-## What is this repo?
+To first SFT a model, run a command like
 
-This repo includes a reference implementation of the DPO algorithm for training language models from preference data, as described in the paper [Direct Preference Optimization: Your Language Model is Secretly a Reward Model](https://arxiv.org/abs/2305.18290).
+```python train.py loss=sft model=llama7b datasets=[shp,hh,oasst] exp_name=llama7b_sft mode=train ++cache_dir=/data/models```
 
-The code here supports any causal HuggingFace model- look at our examples in `config/model` to add your own. Adding your own datasets is also easy. See [the README section](https://github.com/huggingface/peft) on adding datasets.
+which will save a model to `/data/models/llama7b_sft/LATEST/policy.pt`. To then align a model with KTO, run a command like
 
-The DPO pipeline has two stages:
+```python train.py loss=kto model=llama7b datasets=[shp,hh,oasst] exp_name=llama7b_kto mode=train ++cache_dir=/data/models ++model.load_from=llama7b_sft/LATEST/policy.pt```
 
-1. Run supervised fine-tuning (SFT) on the dataset(s) of interest.
-2. Run preference learning on the model from step 1, using preference data (ideally from the same distribution as the SFT examples).
-
-The files in this repo are:
-- `train.py`: the main entry point for training (either SFT or DPO preference-based training)
-- `trainers.py`: the trainer classes (e.g., implementing the loop of learning as well as multi-GPU logic)
-- `utils.py`: some convenience functions used by multiple other files
-- `preference_datasets.py`: dataset processing logic for both SFT and DPO preference-based training; **this is where you'll need to make some additions to train on your own data**
-
-## Running SFT
-
-For DPO, the SFT stage essentially ensures that the preference data we train on is in-distribution for our policy before we actually do the learning from preferences part.
-
-Run SFT for Pythia 6.9B on Anthropic-HH data with batch size 64:
-
-    python -u train.py model=pythia69 datasets=[hh] loss=sft exp_name=anthropic_dpo_pythia69 gradient_accumulation_steps=2 batch_size=64 eval_batch_size=32 trainer=FSDPTrainer sample_during_eval=false
-
-Run SFT for a custom model (for example, Llama at a local path) on Anthropic-HH + Stanford Human Preference data with batch size 64:
-
-    python -u train.py model=blank_model model.name_or_path=/PATH/TO/LLAMA/WEIGHTS model.block_name=LlamaDecoderLayer datasets=[hh,shp] loss=sft exp_name=anthropic_shp_sft_llama_7b gradient_accumulation_steps=2 batch_size=64 eval_batch_size=32 trainer=FSDPTrainer sample_during_eval=false
-
-> Note: Since we're not using one of our predefined model configs, we also need to pass `model.block_name` to tell FSDP what modules to wrap.
-
-By default, evaluation will run every 20k **examples**. You can change this arg with `eval_every` arg. If you don't pass `sample_during_eval=false`, sampling will happen during each eval as well.
-
-To run a different model, either add a new model config to `config/model`, or use the `blank_model` option for `model` and pass `model.name_or_path` (and `model.block_name` if training with FSDP trainer) explicitly. For example, for GPT-2, this would look like:
-    
-    python -u train.py ... model=blank_model model.name_or_path=gpt2-xl model.block=GPT2Block
-
-## Running DPO
-
-To run DPO, use the same command as SFT, but pass `loss=dpo`, `loss.beta=DESIRED_BETA` (0.1-0.5 is a good starting point), and `model.archive=/path/to/checkpoint/from/sft/step-XXXX/policy.pt`. If SFT completed successfully, you should also have a `/.../LATEST/policy.pt` from the end of training.
-
-Run DPO on Pythia 6.9B with effective batch size 64:
-
-    python -u train.py model=pythia69 datasets=[hh] loss=dpo loss.beta=0.1 model.archive=/path/to/checkpoint/from/sft/step-XXXX/policy.pt exp_name=anthropic_dpo_pythia69 gradient_accumulation_steps=2 batch_size=32 eval_batch_size=32 trainer=FSDPTrainer sample_during_eval=false
-
-> Note: `eval_every` is measured in **examples**.
-
-## A complete example
-
-Let's work through a complete example training pythia 2.8B on the Anthropic-HH dataset.
-
-See sample wandb outputs for this example [here](https://wandb.ai/eric_anthony_mitchell/dpo-demos) (tagged `readme-example`).
-
-### Step 1: Set up environment
-
-First, create a virtualenv and install the dependencies. Python 3.8+ is recommended.
-
-    python3 -m venv env
-    source env/bin/activate
-    pip install -r requirements.txt
+which will save a model to `/data/models/llama7b_kto/LATEST/policy.pt`.
 
 
-### Step 2: Run SFT
+## Quickstart
 
-We'll take advantage of FSDP's mixed precision in bfloat16 to speed up training; we usually see about a 50% speedup. By default, SFT will run for a single epoch over a mixture of the selected datasets. Datasets will be downloaded on the fly and cached locally.
+Let's say we want to implement a new HALO called Kahneman-Tversky optimization (KTO).
+This is already implemented in this repo based on the details in our [report](assets/report.pdf), but let's pretend that it's not. 
+What should we do?
 
-    python -u train.py model=pythia28 datasets=[hh] loss=sft exp_name=anthropic_dpo_pythia28 gradient_accumulation_steps=2 batch_size=64 eval_batch_size=32 trainer=FSDPTrainer sample_during_eval=false model.fsdp_policy_mp=bfloat16
+1. First, create and activate the conda environment.
 
-> Note: this command is run on a machine with 4 80GB A100s; on this hardware, SFT takes about 1hr 30min. If you have less compute available, you might need to increase the number of gradient accumulation steps, and SFT will take longer.
+    `conda env create -f environment.yml`
+   
+    `conda activate halos`
 
-**See sample wandb outputs for the SFT step [here](https://wandb.ai/eric_anthony_mitchell/dpo-demos/runs/i4i3ddpp).**
+   If you can't create a conda environment, or you face some issue during installtion, try doing
+   ```
+   conda create -n halos3 python=3.10.12
+   pip3 install numpy==1.24.3 ninja==1.11.1.1 packaging==23.1 
+   conda install pytorch==2.1.1 pytorch-cuda=12.1 -c pytorch -c nvidia
+   pip3 install flash-attn==2.3.3 
+   pip3 install transformers==4.35.2 datasets hydra-core==1.3.2 wandb==0.15.3 openai==1.6.1 accelerate==0.21.0 tensor-parallel==1.2.4
+   ```
+   
+3. Determine whether you need a new dataset. If you have a dataset called `foo`, add a function called `get_foo` to `dataloader.py` that will return a `Dataset` instance. This function should have the following signature, where the prefixes and suffixes determine how the dataset is formatted (see `config.yaml`) and `split` should be either `train` or `test`:
 
-### Step 3: Run DPO
+    ```def get_foo(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:```
 
-Check either wandb (if enabled, it is by default) or your output log to find the local run directory. To run DPO, you'll need the path to the final weights, which will look something like `/some/cache/dir/YOUR_USERNAME/pythia28_hh_sft_bf16_2023-06-21_16-58-17_973996/LATEST/policy.pt`. The `LATEST` directory contains the final set of weights from the end of training.
+4. Determine whether you need a new dataloader. KTO doesn't use preference pairs, just knowledge of whether outputs are desirable or undesirable.
+   This means we use `dataloader.UnpairedPreferenceDataLoader`. However, that dataloader assumes that you're working with datasets that originally contain preference pairs, like Anthropic HH or SHP.
+   If you wanted a custom dataloader, you would implement it in the same Python file by extending the base `DataLoader` class.
 
-    python -u train.py model=pythia28 datasets=[hh] loss=dpo loss.beta=0.1 exp_name=anthropic_dpo_pythia28 gradient_accumulation_steps=2 batch_size=64 eval_batch_size=32 trainer=FSDPTrainer sample_during_eval=false model.fsdp_policy_mp=bfloat16 model.archive=/path/to/archive/from/sft/LATEST/policy.pt
+5. Write a trainer in `trainers.py`. This should subclass either `UnpairedPreferenceTrainer` or `PairedPreferenceTrainer` depending on whether it uses pairs of preferences or not.
+   If you need highly custom behavior that is not in either, then you can subclass `BasicTrainer` directly.
 
-On 4 80GB A100s, DPO training took about 2hrs 45min.
+   We can implement a simple version of KTO as follows (note that this is different from the proper version of KTO in `KTOTrainer`, which does not assume the existence of both chosen and rejected examples in each batch).
 
-**See sample wandb outputs for the DPO step [here](https://wandb.ai/eric_anthony_mitchell/dpo-demos/runs/og8q3euz).**
+   To make SimpleKTOTrainer, we just subclass `trainers.UnpairedPreferenceTrainer` as `trainers.SimpleKTOTrainer` and overwrite the loss function definition. KTO has one hyperparameter, beta, which we can access via `self.config.loss.beta`:
 
-### Customizing training
-The options for training are in `config/config.yaml`, `config/model/blank_model.yaml`, and `config/loss/dpo.yaml`. See the comments in these files for more information on what they do.
+   ```python
+   class SimpleKTOTrainer(UnpairedPreferenceTrainer):
+      """A simple version of KTO meant to introduce you to the HALOs repo."""
+      def loss(self,
+           policy_chosen_logps: torch.FloatTensor,
+           policy_rejected_logps: torch.FloatTensor,
+           reference_chosen_logps: torch.FloatTensor,
+           reference_rejected_logps: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+      """Compute the Kahneman-Tversky loss for a batch of policy and reference model log probabilities. 
+      For each batch of n/2 chosen examples and n/2 rejected examples (belonging to n different inputs), calculate the loss as follows.
 
-You can use one of the pre-configured models by passing `model=some_model`, where `config/model/some_model.yaml` exists. We have a few examples already given.
+      If generation y ~ p_chosen, where x' ~ are the examples with rejected generations, we have the 'chosen' loss:
+          L(x, y) := 1 - sigmoid(beta * (log p_policy(y|x) - log p_reference(y|x) - KL(p_policy(y_rejected|x') || p_reference(y_rejected|x')))
+      If generation y ~ p_rejected, , where x' ~ are the examples with chosen generations, we have the 'rejected' loss:
+          L(x, y) := 1 - sigmoid(beta * KL(p_policy(y_chosen|x') || p_reference(y_chosen|x')) - [log p_policy(y|x) - log p_reference(y|x)])
+      """
+      # your implementation goes here
+      return losses, chosen_rewards, rejected_rewards
+   ```
 
-If you want to use another model, just create a new config for that model (following our examples; it must be a `.yaml` file!), or use `model=blank_model` with `model.name_or_path=NAME_OR_PATH`, optionally `model.tokenizer_name_or_path=TOKENIZER_NAME_OR_PATH` if it is different than the model's name/path, and `model.block_name=NAME_OF_TRANSFORMER_BLOCK` (if you are using FSDP). The only other options you might want to change are the dpo loss options, which are `loss.beta` and `loss.reference_free` (see `config/loss/dpo.yaml`).
+7. Add a file to the config/loss folder specifying the details of the loss:
 
-## Trainer classes
+   ```yaml
+    name: kto-simple
+    beta: 0.1 # the temperature parameter for simple KTO; lower values mean we care less about the reference model
+    trainer: SimpleKTOTrainer # implemented in trainers.py
+    dataloader: UnpairedPreferenceDataLoader # already exists in dataloaders.py
+    use_reference_model: true # true because the loss definition includes a reference model
+    ```
 
-We implement three different trainer classes in `trainers.py`:
-- `BasicTrainer`: For multiple GPUs, naively partition the model among them. e.g., for two GPUs, the first half of the model layers will be on GPU 0, the second half will be on GPU 1. This trainer effectively increases your available GPU memory without using multiple GPUs are once for compute (so you get no speedup).
-- `FSDPTrainer`: Use PyTorch's [Fully Sharded Data Parallel](https://pytorch.org/docs/stable/fsdp.html) (FSDP) implementation to shard each transformer block amongst available GPUs. Should give a significant speedup over `BasicTrainer` with batch size per GPU >1. The batch size per gpu is equal to `batch_size / (gradient_accumulation_steps * num_gpus)`. **You may need to run `ulimit -n 64000` in your launch script before calling `train.py` with this trainer; e.g., `ulimit -n 64000; python train.py ...`.**
-- `TensorParallelTrainer`: Use PyTorch tensor parallelism (with [this wrapper](https://github.com/BlackSamorez/tensor_parallel)) to shard each linear layer amongst available GPUs. This trainer is experimental, but should work.
+8. Now we can start training a model! Let's train a Llama-7B model on the SHP, Anthropic HH, and Open Assistant datasets.
+   Since the corresponding entry for Llama-7B is config/model/llama7b.yaml, we run a command with [Hydra](https://hydra.cc/docs/intro/):
 
-**Warning:** Sampling may be very slow for `FSDPTrainer` and especially `TensorParallelTrainer` (see [this issue](https://github.com/pytorch/pytorch/issues/100069) and [this issue](https://github.com/BlackSamorez/tensor_parallel/issues/66), respectively for `FSDPTrainer` and `TensorParallelTrainer`). Passing `sample_during_eval=false` is recommended for these trainers.
+   `python train.py loss=kto-simple model=llama7b datasets=[shp,hh,oasst] exp_name=kto-simple_llama7b mode=train ++cache_dir=/data/models`
 
-### Which trainer do I use?
- For single GPU training, use `BasicTrainer`. For many-GPU setups, `FSDPTrainer` will most likely be the best choice, though these haven't been benchmarked yet.
+   which will align a Llama-7B model from scratch. If we want to align a model that we've already finetuned with the HALOs repo,
+   we can add something like `++model.load_from=/data/models/sft_llama7b/LATEST/policy.pt` to the end of the command.
 
-# Adding new datasets
-Adding new/custom datasets is easy, and shouldn't take more than 10 minutes or so. Add your dataset to `preference_datasets.py` (we've implemented Anthropic-HH, Stanford Human Preferences, and StackExchange as references). Follow our reference datasets (in the functions `get_se()`, `get_shp()`, `get_hh()`); you essentially need to return a dict mapping each prompt to another dict containing three values:
+   That's it! Your model will be saved to `/data/models/kto-simple_llama7b/LATEST/policy.pt`.
 
-- `responses: List[str]`: the list of responses on which preferences are given
-- `pairs: List[Tuple[int]]`: the preference pairs, where the first value in each tuple is the preferred response and the second value is the dispreferred response
-- `sft_target: str`: the response to use for this prompt during SFT (this response may or may not be one of the values in `responses`)
 
-Once you've added your dataset, for example `xyz`, you can train on it by passing it to `datasets=[xyz]` to an SFT or DPO train command.
+9. Let's sample some generations from our newly trained model. The sampling configs are in either `config/config.yaml` or under `models/`.
+   We can sample 512 generations from our newly trained model in batches of 32 with the command, which will create a JSON file under `samples/{config.exp_name}.json`.
 
-**Make sure you've updated `preference_datasets:get_dataset()` to return your new dataset when its name is passed in!**
+   `python eval.py --config-path=/data/models/kto-simple_llama7b/config.yaml ++mode=sample ++n_samples=512 ++model.eval_batch_size=32 ++samples_dir=samples/`
 
-# Tips for faster training on multiple GPUs
-FSDP is recommended for faster training when multiple GPUs are available. In general, you should try to use a batch size of at least 2 on each GPU (i.e., `batch_size // (grad_accumulation_steps * N_GPUS)` is at least 2) to see a speedup from FSDP compared to the `BasicTrainer`. One way to do this is to use mixed precision. This repo implements mixed precision through [FSDP](https://pytorch.org/docs/stable/fsdp.html#torch.distributed.fsdp.MixedPrecision). Enable mixed precision (only supported for `FSDPTrainer`, currently) by passing `model.fsdp_policy_mp=bfloat16` or `model.fsdp_policy_mp=float16` (only `bfloat16` has been tested). Another way to reduce memory usage is activation checkpointing (or *gradient checkpointing*), which can be enabled with `activation_checkpointing=true` (also implemented only for `FSDPTrainer`). Activation checkpointing doesn't always increase throughput, but if you're stuck at batch size per GPU of 1, it's worth a try.
+10. After setting `OPENAI_API_KEY`, we can evaluate our aligned model with GPT-4 with the following command, which compares the aligned model's generations to the human-chosen response in the data:
 
-See [this article](https://pytorch.org/blog/efficient-large-scale-training-with-pytorch/) for more information about optimizing FSDP.
+    `python compare.py -f samples/kto-simple_llama7b.json -mc 512 -bk chosen -ck policy -r result.jsonl `
 
-# Citing DPO
-If DPO or this repository is useful in your own research, you can use the following BibTeX entry:
 
-    @inproceedings{
-        rafailov2023direct,
-        title={Direct Preference Optimization: Your Language Model is Secretly a Reward Model},
-        author={Rafael Rafailov and Archit Sharma and Eric Mitchell and Christopher D Manning and Stefano Ermon and Chelsea Finn},
-        booktitle={Thirty-seventh Conference on Neural Information Processing Systems},
-        year={2023},
-        url={https://arxiv.org/abs/2305.18290}
-    }
+## FAQs
+
+1. Do you support multi-node training?
+
+   No, currently the repo only supports single-node training. Multi-node training will be added at some point in the future.
+   Every model in the Archangel suite was trained with 8 x A100 GPUs on a single node.
+
+2. How do I save intermediate checkpoints?
+
+   Set intermediate_checkpoints to true in config/config.yaml or on the command line with ++config.intermediate_checkpoints=true.
+   Every config.eval_every steps, a checkpoint will be saved in the experiment directory ($cache_dir/$exp_name).
+
+3. Where do I find all the Archangel models?
+
+    They are all on the Huggingface Hub:
+
+| Model | PPO | DPO | KTO | SFT | SLIC | SFT+PPO | SFT+DPO | SFT+KTO | CSFT | SFT+CSFT |
+| ------------- |:-------------:|-------------:|-------------:|-------------:|-------------:|-------------:|-------------:|-------------:| -------------:|-------------:|
+| pythia1-4b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_pythia1-4b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_pythia1-4b) |  
+| pythia2-8b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_pythia2-8b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_pythia2-8b) |  
+| pythia6-9b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_pythia6-9b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_pythia6-9b) |  
+| pythia12-0b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_pythia12-0b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_pythia12-0b) |  
+| llama7b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_llama7b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_llama7b) |  
+| llama13b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_llama13b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_llama13b) |  
+| llama30b | [weights](https://huggingface.co/ContextualAI/archangel_ppo_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_dpo_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_kto_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_sft_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_slic_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-ppo_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-dpo_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-kto_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_csft_llama30b) | [weights](https://huggingface.co/ContextualAI/archangel_sft-csft_llama30b) |  
+
+![halos](assets/thumbnail.jpg)
+
+   
+## Citation
+
+If you find this repo or the technical paper useful in your research, please feel free to cite [our work](https://contextual.ai/better-cheaper-faster-llm-alignment-with-kto/):
+```
+@techreport{ethayarajh2023halos,
+  author = {Ethayarajh, Kawin and Xu, Winnie, and Jurafsky, Dan and Kiela, Douwe},
+  title = {Human-Aware Loss Functions (HALOs)},
+  institution = {Contextual AI},
+  note = {https://github.com/ContextualAI/HALOs/blob/main/assets/report.pdf},
+  year = {2023},
+}
+```

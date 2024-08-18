@@ -1,3 +1,8 @@
+# Copyright (c) 2023 Contextual AI, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
 import os
 import getpass
 from datetime import datetime
@@ -10,6 +15,20 @@ import importlib.util
 import socket
 import os
 from typing import Dict, Union, Type, List
+from collections.abc import Mapping
+
+
+def deepcopy_fsdp_models(src, tgt):
+    """Given two models src and tgt, copy every parameter from the src to the tgt model."""
+    with torch.no_grad():
+        src_params = { k: v for k,v in src.named_parameters() }
+        tgt_params = { k: v for k,v in tgt.named_parameters() }
+
+        for k in tgt_params:
+            if k in src_params:
+                tgt_params[k].data.copy_(src_params[k].data.detach())
+            else:
+                rank0_print(f"{k} not found")
 
 
 def get_open_port():
@@ -43,22 +62,8 @@ def rank0_print(*args, **kwargs):
         print(*args, **kwargs)
 
 
-def get_local_dir(prefixes_to_resolve: List[str]) -> str:
-    """Return the path to the cache directory for this user."""
-    for prefix in prefixes_to_resolve:
-        if os.path.exists(prefix):
-            return f"{prefix}/{getpass.getuser()}"
-    os.makedirs(prefix)
-    return f"{prefix}/{getpass.getuser()}"
-    
-
-def get_local_run_dir(exp_name: str, local_dirs: List[str]) -> str:
-    """Create a local directory to store outputs for this run, and return its path."""
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S_%f")
-    run_dir = f"{get_local_dir(local_dirs)}/{exp_name}_{timestamp}"
-    os.makedirs(run_dir, exist_ok=True)
-    return run_dir
+def on_rank0():
+    return (not dist.is_initialized()) or (dist.get_rank() == 0)
 
 
 def slice_and_move_batch_for_device(batch: Dict, rank: int, world_size: int, device: str) -> Dict:
@@ -80,12 +85,119 @@ def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float
         return torch.cat([tensor, pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device)], dim=dim)
 
 
+def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False, token_level: bool = False):
+    """Compute the log probabilities of the given labels under the given logits.
+
+    Args:
+        logits: Logits of the model (unnormalized). Shape: (batch_size, sequence_length, vocab_size)
+        labels: Labels for which to compute the log probabilities. Label tokens with a value of -100 are ignored. Shape: (batch_size, sequence_length)
+        average_log_prob: If True, return the average log probability per (non-masked) token. Otherwise, return the sum of the log probabilities of the (non-masked) tokens.
+        token_level: If true, return the token-level log probabilities (do not aggregate across tokens)
+
+    Returns:
+        The relevant log probabilities. Of shape (batch_size,) by default and shape (batch size, sequence length) if token_level.
+    """
+    assert logits.shape[:-1] == labels.shape
+
+    labels = labels[:, 1:].clone()
+    logits = logits[:, :-1, :]
+    loss_mask = (labels != -100)
+
+    # dummy token; we'll ignore the losses on these tokens later
+    labels[labels == -100] = 0
+    distribution_logps = logits.log_softmax(-1)
+
+    per_token_logps = torch.gather(distribution_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+
+    if token_level: 
+        return (per_token_logps * loss_mask)
+    elif average_log_prob:
+        return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
+    else:
+        return (per_token_logps * loss_mask).sum(-1)
+
+
+def clip_by_value(x, tensor_min, tensor_max):
+    """
+    Tensor extenstion to torch.clamp
+    https://github.com/pytorch/pytorch/issues/2793#issuecomment-428784713
+    """
+    clipped = torch.max(torch.min(x, tensor_max), tensor_min)
+    return clipped
+
+
+def masked_mean(values, mask, axis=None):
+    """Compute mean of tensor with a masked values."""
+    if axis is not None:
+        return (values * mask).sum(axis=axis) / mask.sum(axis=axis)
+    else:
+        return (values * mask).sum() / mask.sum()
+
+
+def masked_var(values, mask, unbiased=True):
+    """Compute variance of tensor with masked values."""
+    mean = masked_mean(values, mask)
+    centered_values = values - mean
+    variance = masked_mean(centered_values**2, mask)
+    return variance
+
+
+def rowwise_product(mat: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the row-wise product over all the elements that have not been masked out.
+
+    Args:
+        mat: tensor of shape (batch_size, sequence length)
+        mask: tensor of shape (batch_size, sequence length) 
+
+    Returns:
+        Matrix of batch size. 
+    """
+    mat = mat.clone()
+    indices = (mask == 0).long().nonzero()
+    mat[indices[:,0], indices[:,1]] = 1
+    return mat.prod(dim=1)
+
+
+def entropy_from_logits(logits: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """Calculate entropy from logits.
+    
+    Args:
+        logits: tensor of shape (batch_size, sequence length, vocab)
+        mask: tensor of shape (batch_size, sequence length)
+    
+    Returns:
+        The average tokenwise entropy across all non-masked tokens (of shape (1,)).
+    """
+    pd = torch.nn.functional.softmax(logits, dim=-1)
+    entropy = masked_mean(torch.logsumexp(logits, axis=-1) - torch.sum(pd * logits, axis=-1), mask)
+    return entropy
+
+
+def flatten_dict(nested, sep="/"):
+    """Flatten dictionary and concatenate nested keys with separator."""
+
+    def rec(nest, prefix, into):
+        for k, v in nest.items():
+            if sep in k:
+                raise ValueError(f"separator '{sep}' not allowed to be in key '{k}'")
+            if isinstance(v, Mapping):
+                rec(v, prefix + k + sep, into)
+            else:
+                into[prefix + k] = v
+
+    flat = {}
+    rec(nested, "", flat)
+    return flat
+
+
 def all_gather_if_needed(values: torch.Tensor, rank: int, world_size: int) -> torch.Tensor:
     """Gather and stack/cat values from all processes, if there are multiple processes."""
     if world_size == 1:
         return values
 
-    all_values = [torch.empty_like(values).to(rank) for _ in range(world_size)]
+    device = torch.device('cuda', rank)
+    all_values = [torch.empty_like(values).to(device) for _ in range(world_size)]
     dist.all_gather(all_values, values)
     cat_function = torch.cat if values.dim() > 0 else torch.stack
     return cat_function(all_values, dim=0)
@@ -101,6 +213,12 @@ def disable_dropout(model: torch.nn.Module):
     for module in model.modules():
         if isinstance(module, torch.nn.Dropout):
             module.p = 0
+
+
+def delete_dict(d: Dict):
+    """Delete all items inside the dict."""
+    for k in list(d.keys()):
+        del d[k]
 
 
 def print_gpu_memory(rank: int = None, message: str = ''):
@@ -149,27 +267,6 @@ def init_distributed(rank: int, world_size: int, master_addr: str = 'localhost',
     print(rank, 'initializing distributed')
     os.environ["MASTER_ADDR"] = master_addr
     os.environ["MASTER_PORT"] = str(port)
-    dist.init_process_group(backend, rank=rank, world_size=world_size)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(rank)
     torch.cuda.set_device(rank)
-
-
-class TemporarilySeededRandom:
-    def __init__(self, seed):
-        """Temporarily set the random seed, and then restore it when exiting the context."""
-        self.seed = seed
-        self.stored_state = None
-        self.stored_np_state = None
-
-    def __enter__(self):
-        # Store the current random state
-        self.stored_state = random.getstate()
-        self.stored_np_state = np.random.get_state()
-
-        # Set the random seed
-        random.seed(self.seed)
-        np.random.seed(self.seed)
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # Restore the random state
-        random.setstate(self.stored_state)
-        np.random.set_state(self.stored_np_state)
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
