@@ -1,0 +1,8 @@
+__pycache__
+outputs
+results
+.vscode
+.cache
+test
+wandb
+cache
