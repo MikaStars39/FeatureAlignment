@@ -1,8 +1,8 @@
 # random seed
-seed: 1
+seed: 39
 
 # name for this experiment in the local run directory and on wandb
-exp_name: ???
+exp_name: feature-level-dpo
 
 # datasets should be specified
 datasets: ???
@@ -23,7 +23,7 @@ fsdp_port: null
 wandb:
   enabled: true
   entity: null
-  project: "archangel"
+  project: "feature-level-dpo"
 
 # where trained models will be saved
 # use HF environmental variables to control where the datasets, pretrained Huggingface models, etc. are saved 

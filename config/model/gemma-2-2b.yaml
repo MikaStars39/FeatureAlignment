@@ -1,0 +1,6 @@
+defaults:
+  - base_model
+
+name_or_path: /data/models/gemma-2-2b
+block_name: Gemma2DecoderLayer
+use_flash_attention: true
