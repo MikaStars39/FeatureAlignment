@@ -537,7 +537,7 @@ class SFTTrainer(BasicTrainer):
         if mode is None: mode = self.config.mode
         
         policy_chosen_logits = self.policy(batch['target_combined_input_ids'], attention_mask=batch['target_combined_attention_mask'], use_cache=(not self.is_mistral)).logits.to(self.policy_dtype)
-        policy_chosen_logps = get_batch_logps(policy_chosen_logits, batch['target_labels'], average_log_prob=False)
+        policy_chosen_logps = get_batch_logps(policy_chosen_logits, batch['target_labels'], average_log_prob=True)
         losses = -policy_chosen_logps
 
         policy_chosen_logps = all_gather_if_needed(policy_chosen_logps.detach(), self.rank, self.world_size)
