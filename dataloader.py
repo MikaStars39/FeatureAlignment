@@ -124,6 +124,39 @@ def get_alpacaeval(split: str, human_prefix: str, human_suffix: str, assistant_p
     return data
 
 
+def get_ultrachatsft(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
+    """
+    Load the AlpacaEval dataset (for evaluation only) and convert it into to a Dataset.
+
+    Args:
+        - split: must be 'test'; otherwise error will be thrown
+        - human_prefix: marks start of human turn ('<|user|>' is the recommended choice and is set in config.yaml)
+        - human_suffix: marks end of human turn ('' is the recommended choice and is set in config.yaml)
+        - assistant_prefix: marks start of human turn ('<|assistant|>' is the recommended choice and is set in config.yaml)
+        - assistant_suffix: marks end of human turn ('' is the recommended choice and is set in config.yaml)
+
+    Returns:   
+        A Dataset instance.
+    """
+    if split == 'train':
+        split = 'train_sft'
+    elif split == 'test':
+        split = 'test_sft'
+
+    rank0_print(f'Loading UltraChat sft dataset ({split} split) from Huggingface...')
+    dataset = datasets.load_dataset('HuggingFaceH4/ultrachat_200k', split=split)
+    if on_rank0():
+        dataset = tqdm.tqdm(dataset, desc='Processing UltraChat')
+
+    data = Dataset('ultrachat_sft')
+
+    for row in dataset:
+        prompt = human_prefix + row['prompt'] + human_suffix + assistant_prefix
+        data[prompt].prompt = prompt
+        data[prompt].generations.append(row['messages'][1]['content'] + assistant_suffix)
+    return data
+
+
 def get_shp(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
     """
     Load the Stanford Human Preferences dataset from Huggingface and convert it into to a Dataset.
@@ -337,7 +370,7 @@ def get_oasst(split: str, human_prefix: str, human_suffix: str, assistant_prefix
         data[prompt].scores.extend([next_best_sibling['rank'], row['rank']])
         data[prompt].dataset_name = 'oasst'
         data[prompt].remove_extra_spaces()
-    
+
     return data
 
 
@@ -382,7 +415,6 @@ def get_ultrabin(split: str, human_prefix: str, human_suffix: str, assistant_pre
         data[prompt].dataset_name = data.name
         data[prompt].truncation_mode = 'keep_start'
         data[prompt].remove_extra_spaces()
-
     return data
 
 
