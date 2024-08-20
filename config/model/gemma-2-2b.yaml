@@ -1,9 +1,9 @@
 # the name of the model to use; should be something like
 #   gpt2-xl or gpt-neo-2.7B or huggyllama/llama-7b
-name_or_path: google/gemma-2-2b
+name_or_path: google/gemma-2-2b-it
 
 # the name of the tokenizer to use; if null, will use the tokenizer from the model
-tokenizer_name_or_path: google/gemma-2-2b
+tokenizer_name_or_path: google/gemma-2-2b-it
 
 # override pre-trained weights (e.g., from SFT); optional
 archive: null

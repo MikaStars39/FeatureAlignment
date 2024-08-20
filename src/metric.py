@@ -18,6 +18,82 @@ def dpo_loss(
     losses = losses + beta * F.kl_div(policy_chosen_logps_softmax.log(), reference_chosen_logps_softmax)
     return losses, None, None
 
+
+def tdpo_kl_loss(
+    # logits
+    pi_chosen_logits: torch.Tensor,
+    ref_chosen_logits: torch.Tensor,
+    pi_rejected_logits: torch.Tensor,
+    ref_rejected_logits: torch.Tensor,
+    # features
+    pi_feature_acts_chosen: torch.Tensor,
+    pi_feature_acts_rejected: torch.Tensor,
+    ref_feature_acts_chosen: torch.Tensor,
+    ref_feature_acts_rejected: torch.Tensor,
+    # label
+    c_labels: torch.Tensor,
+    r_labels: torch.Tensor,
+    # hyperparameters
+    beta: float,
+    alpha: float,
+) -> torch.FloatTensor:
+
+    # trunctuation
+    min_len = min(pi_chosen_logits.size(1), pi_rejected_logits.size(1))
+    pi_chosen_logits = pi_chosen_logits[:, :min_len, :]
+    ref_chosen_logits = ref_chosen_logits[:, :min_len, :]
+    pi_rejected_logits = pi_rejected_logits[:, :min_len, :]
+    ref_rejected_logits = ref_rejected_logits[:, :min_len, :]
+    pi_feature_acts_chosen = pi_feature_acts_chosen[:, :min_len, :]
+    pi_feature_acts_rejected = pi_feature_acts_rejected[:, :min_len, :]
+    ref_feature_acts_chosen = pi_feature_acts_chosen[:, :min_len, :]
+    ref_feature_acts_rejected = pi_feature_acts_rejected[:, :min_len, :]
+    c_labels = c_labels[:, :min_len]
+    r_labels = r_labels[:, :min_len]
+
+    # rewards
+    pi_chosen_vocab_logps = (pi_chosen_logits.softmax(-1) + 1e-3).log()
+    ref_chosen_vocab_ps = ref_chosen_logits.softmax(-1)
+    ref_chosen_vocab_logps = (ref_chosen_vocab_ps + 1e-3).log()
+
+    pi_rejected_vocab_logps = (pi_rejected_logits.softmax(-1) + 1e-3).log()
+    ref_rejected_vocab_ps = ref_rejected_logits.softmax(-1)
+    ref_rejected_vocab_logps = (ref_rejected_vocab_ps + 1e-3).log()
+
+    pi_chosen_per_token_logps = torch.gather(pi_chosen_vocab_logps, dim=2, index=c_labels.unsqueeze(2)).squeeze(2)
+    ref_chosen_per_token_logps = torch.gather(ref_chosen_vocab_logps, dim=2, index=c_labels.unsqueeze(2)).squeeze(2)
+
+    pi_rejected_per_token_logps = torch.gather(pi_rejected_vocab_logps, dim=2, index=r_labels.unsqueeze(2)).squeeze(2)
+    ref_rejected_per_token_logps = torch.gather(ref_rejected_vocab_logps, dim=2, index=r_labels.unsqueeze(2)).squeeze(2)
+
+    chosen_rewards = pi_chosen_per_token_logps - ref_chosen_per_token_logps
+    rejected_rewards = pi_rejected_per_token_logps - ref_rejected_per_token_logps
+    rewards = chosen_rewards - rejected_rewards
+
+    # kl
+    pi_rejected_feature_logps = (pi_feature_acts_rejected.softmax(-1) + 1e-3).log()
+    pi_chosen_feature_logps = (pi_feature_acts_chosen.softmax(-1) + 1e-3).log()
+    ref_rejected_feature_logps = ref_feature_acts_rejected.softmax(-1)
+    ref_chosen_feature_logps = ref_feature_acts_chosen.softmax(-1)
+
+    token_chosen_kl = (ref_chosen_vocab_ps * (ref_chosen_vocab_logps - pi_chosen_vocab_logps)).sum(-1)
+    token_rejected_kl = (ref_rejected_vocab_ps * (ref_rejected_vocab_logps - pi_rejected_vocab_logps)).sum(-1)
+
+    # sum over the last dimension
+    chosen_kl = F.kl_div(pi_rejected_feature_logps, ref_rejected_feature_logps, reduction='none').sum(-1)
+    # chosen_kl = F.kl_div(pi_rejected_feature_logps, ref_rejected_feature_logps, reduction='none')
+    rejected_kl = F.kl_div(pi_chosen_feature_logps, ref_chosen_feature_logps, reduction='none').sum(-1)
+
+    print(rewards)
+
+    values = rewards - alpha * (rejected_kl - chosen_kl.detach())
+
+    losses = -F.logsigmoid(beta * values)
+
+    return losses.mean(), chosen_rewards, rejected_rewards, token_chosen_kl.mean(), token_rejected_kl.mean()
+
+
+
 def tdpo_loss(
     pi_chosen_logits: torch.Tensor,
     ref_chosen_logits: torch.Tensor,
@@ -60,7 +136,7 @@ def tdpo_loss(
 
     # sae_reg = (feature_acts_chosen - feature_acts_rejected).sum(dim=-1)
     # use mse loss
-    sae_reg = -F.logsigmoid((feature_acts_chosen - feature_acts_rejected).sum(dim=-1))
+    sae_reg = (feature_acts_chosen.mean(dim=1) - feature_acts_rejected.mean(dim=1)).sum(dim=-1)
 
     pi_chosen_vocab_logps = pi_chosen_logits.log_softmax(-1)
     ref_chosen_vocab_ps = ref_chosen_logits.softmax(-1)
@@ -81,6 +157,7 @@ def tdpo_loss(
     rewards = chosen_rewards - rejected_rewards
 
     chosen_kl = (ref_chosen_vocab_ps * (ref_chosen_vocab_logps - pi_chosen_vocab_logps)).sum(-1)
+    
     rejected_kl = (ref_rejected_vocab_ps * (ref_rejected_vocab_logps - pi_rejected_vocab_logps)).sum(-1)
 
     # sae_logits = (feature_acts_chosen.mean(dim=1) - feature_acts_rejected.mean(dim=1)).sum(dim=-1)
@@ -92,7 +169,7 @@ def tdpo_loss(
         values = rewards - alpha * (rejected_kl - chosen_kl.detach())
 
     losses = (-F.logsigmoid(beta * values) + sae_lambda * sae_reg) if if_sae else -F.logsigmoid(beta * values)
-    return losses.mean(), chosen_rewards, rejected_rewards, chosen_kl.mean(), rejected_kl.mean()
+    return losses.mean(), chosen_rewards + chosen_kl, rejected_rewards + rejected_kl, chosen_kl.mean(), rejected_kl.mean()
 
 # def tdpo_loss(
 #     chosen_labels: torch.Tensor,

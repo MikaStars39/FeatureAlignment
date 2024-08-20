@@ -14,7 +14,7 @@ batch_size: 1
 eval_batch_size: 16
 
 # debug mode (disables wandb, model checkpointing, etc.)
-debug: false
+debug: true
 
 # the port to use for FSDP
 # fsdp_port: null
@@ -102,4 +102,4 @@ log_every_n_steps: 1
 defaults:
 - _self_
 - model: gemma-2-2b # basic model configuration
-- loss: tdpo # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- loss: tdpo_kl # which loss function, either sft or dpo (specify loss.beta if using dpo)

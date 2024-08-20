@@ -15,6 +15,7 @@ from .sae import replace_sae_with_reture_feature_acts
 from .jump_relu_sae import JumpReLUSAE
 from .metric import (
     tdpo_loss,
+    tdpo_kl_loss,
     dpo_loss
 )
 from huggingface_hub import hf_hub_download
@@ -175,8 +176,7 @@ class FeatureLevelDPOModel(L.LightningModule):
         # Compute TDPO loss or other loss
         beta = self.config.loss.beta
         alpha = self.config.loss.alpha
-        sae_lambda = self.config.loss.sae_lambda
-
+        
         if self.config.loss.name == "dpo":
             losses, chosen_rewards, rejected_rewards = dpo_loss(
                 feature_acts_chosen=feature_acts_chosen,
@@ -186,6 +186,7 @@ class FeatureLevelDPOModel(L.LightningModule):
                 beta=beta,
             )
         elif self.config.loss.name == "tdpo":
+            sae_lambda = self.config.loss.sae_lambda
             losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = tdpo_loss(
                 policy_chosen_logps[:, :-1, :],
                 reference_chosen_logps[:, :-1, :],
@@ -200,6 +201,21 @@ class FeatureLevelDPOModel(L.LightningModule):
                 sae_lambda=sae_lambda,
                 if_tdpo2=True,
                 if_sae=self.config.loss.sae
+            )
+        elif self.config.loss.name == "tdpo_kl":
+            losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = tdpo_kl_loss(
+                policy_chosen_logps[:, :-1, :].contiguous(),
+                reference_chosen_logps[:, :-1, :].contiguous(),
+                policy_rejected_logps[:, :-1, :].contiguous(),
+                reference_rejected_logps[:, :-1, :].contiguous(),
+                pi_feature_acts_chosen=feature_acts_chosen,
+                pi_feature_acts_rejected=feature_acts_rejected,
+                ref_feature_acts_chosen=chosen_feature_acts_reference.float(),
+                ref_feature_acts_rejected=rejected_feature_acts_reference.float(),
+                c_labels=chosen['input_ids'][:, 1:].contiguous(),
+                r_labels=rejected['input_ids'][:, 1:].contiguous(),
+                beta=beta,
+                alpha=alpha,
             )
         else: raise ValueError("loss name not recognized")
 
