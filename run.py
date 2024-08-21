@@ -21,6 +21,7 @@ from dpo.utils import get_local_run_dir
 from src.model import FeatureLevelDPOModel
 from src.trainer import train_callback
 from src.transformers_model.modeling_gemma2 import Gemma2DecoderLayer
+from src.feature_map import get_feature_map
 from torch.distributed.fsdp import MixedPrecision
 
 
@@ -52,11 +53,18 @@ OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs
 #     trainer.train()
 #     trainer.save()
 
-def load_data(config: DictConfig):
+def load_data(config: DictConfig = None, datasets: str = None):
+    if datasets is None:
+        datasets = config.datasets
+
     batch_size = config.batch_size
 
-    train_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="train_prefs")
-    test_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="test_prefs")
+    if datasets == 'HuggingFaceH4/ultrafeedback_binarized':
+        train_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="train_prefs")
+        test_dataset = load_dataset('HuggingFaceH4/ultrafeedback_binarized', split="test_prefs")
+    elif datasets == 'PKU-Alignment/PKU-SafeRLHF':
+        train_dataset = load_dataset('PKU-Alignment/PKU-SafeRLHF', split="train")
+        test_dataset = load_dataset('PKU-Alignment/PKU-SafeRLHF', split="test")
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -154,9 +162,19 @@ def main(config: DictConfig):
 
     train_dataloader, test_dataloader = load_data(config)
 
+    feature_train_dataloader, _ = load_data(config, datasets='PKU-Alignment/PKU-SafeRLHF')
+
     # load model
+    chosen_feature_map, rejected_feature_map = get_feature_map(
+        model_name_or_path=config.model.name_or_path,
+        device="cuda",
+        dataloader=feature_train_dataloader,
+        sae_encoder_name_or_path=config.model.sae_encoder_name_or_path,
+        sae_layer_id=config.model.sae_layer_id,
+    )
+
     rank_zero_info("-------- loading model -----------")
-    model = FeatureLevelDPOModel(config=config)
+    model = FeatureLevelDPOModel(config=config, feature_map=(chosen_feature_map, rejected_feature_map))
     model_checkpoint = ModelCheckpoint(
             dirpath=config.result_dir,
             every_n_train_steps=config.save_steps,

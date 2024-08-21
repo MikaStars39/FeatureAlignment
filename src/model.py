@@ -39,11 +39,13 @@ class FeatureLevelDPOModel(L.LightningModule):
     def __init__(
         self,
         config: DictConfig,
+        feature_map: Tuple,
     ):
         super().__init__()
         self.config = config
         self.policy = None
         self.reference = None
+        self.feature_map = feature_map
         self.tokenizer = transformers.AutoTokenizer.from_pretrained("google/gemma-2b-it")
 
     def configure_model(self):
@@ -78,24 +80,30 @@ class FeatureLevelDPOModel(L.LightningModule):
 
             rank_zero_info('building sae model')
 
-            if "gemma-scope-2b" in self.config.model.sae_encoder_name_or_path:
-                path_to_params = hf_hub_download(
-                    repo_id=self.config.model.sae_encoder_name_or_path,
-                    filename=self.config.model.sae_id_name_or_path,
-                    force_download=False,
-                )
-                params = np.load(path_to_params)
-                pt_params = {k: torch.from_numpy(v).cuda() for k, v in params.items()}
-                sae_encoder = JumpReLUSAE(params['W_enc'].shape[0], params['W_enc'].shape[1])
-                sae_encoder.load_state_dict(pt_params)
+            if config.release:
+                if "gemma-scope-2b" in self.config.model.sae_encoder_name_or_path:
+                    path_to_params = hf_hub_download(
+                        repo_id=self.config.model.sae_encoder_name_or_path,
+                        filename=self.config.model.sae_id_name_or_path,
+                        force_download=False,
+                    )
+                    params = np.load(path_to_params)
+                    pt_params = {k: torch.from_numpy(v).cuda() for k, v in params.items()}
+                    sae_encoder = JumpReLUSAE(params['W_enc'].shape[0], params['W_enc'].shape[1])
+                    sae_encoder.load_state_dict(pt_params)
 
+                else:
+                    sae_encoder = replace_sae_with_reture_feature_acts()
+                    sae_encoder, _, _ = sae_encoder.from_pretrained(
+                        release = self.config.model.sae_encoder_name_or_path, # see other options in sae_lens/pretrained_saes.yaml
+                        sae_id = self.config.model.sae_id_name_or_path, # won't always be a hook point
+                    )
+                    # rank_zero_info( self.policy.model.layers[self.config.model.sae_layer_id])
             else:
-                sae_encoder = replace_sae_with_reture_feature_acts()
-                sae_encoder, _, _ = sae_encoder.from_pretrained(
-                    release = self.config.model.sae_encoder_name_or_path, # see other options in sae_lens/pretrained_saes.yaml
-                    sae_id = self.config.model.sae_id_name_or_path, # won't always be a hook point
-                )
-                rank_zero_info( self.policy.model.layers[self.config.model.sae_layer_id])
+                if "Qwen1.5-0.5" in self.config.model.name_or_path:
+                    sae_encoder_ = sae_encoder.load_from_pretrained(
+                        path=self.config.sae_encoder_name_or_path,
+                    )
             
             self.policy.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
             self.reference.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
@@ -116,17 +124,23 @@ class FeatureLevelDPOModel(L.LightningModule):
             # for dpo, we set the reference model to be eval mode
             for param in self.reference.parameters():
                 param.requires_grad = False
-
         
     def training_step(
         self, 
         batch: Dict[str, Union[List, torch.LongTensor]], 
     ):
-        chosen = batch["chosen"]
-        rejected = batch["rejected"]
-        for i in range(len(chosen)):
-            chosen[i]['role'] = chosen[i]['role'][0]
-            rejected[i]['role'] = rejected[i]['role'][0]
+        if self.config.datasets == 'HuggingFaceH4/ultrafeedback_binarized':
+            chosen = batch["chosen"]
+            rejected = batch["rejected"]
+            for i in range(len(chosen)):
+                chosen[i]['role'] = chosen[i]['role'][0]
+                rejected[i]['role'] = rejected[i]['role'][0]
+        elif self.config.datasets == 'PKU-Alignment/PKU-SafeRLHF':
+            chosen = batch["response_0"]
+            rejected = batch["response_1"]
+            for i in range(len(chosen)):
+                chosen[i]['role'] = chosen[i]['role'][0]
+                rejected[i]['role'] = rejected[i]['role'][0]
 
         chosen = self.tokenizer.apply_chat_template(
             chosen, 
@@ -216,6 +230,8 @@ class FeatureLevelDPOModel(L.LightningModule):
                 r_labels=rejected['input_ids'][:, 1:].contiguous(),
                 beta=beta,
                 alpha=alpha,
+                delta=0.5,
+                feature_map=self.feature_map
             )
         else: raise ValueError("loss name not recognized")
 
