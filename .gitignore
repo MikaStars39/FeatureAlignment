@@ -6,3 +6,5 @@ results
 test
 wandb
 cache
+lightning_logs
+datasets

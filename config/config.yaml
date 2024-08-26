@@ -1,105 +1,47 @@
-# feature-level dpo related
-
-
-# random seed for batch sampling
-seed: 39
-
-# name for this experiment in the local run directory and on wandb
-exp_name: feature-level-dpo
-
-# the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
-batch_size: 1
-
-# the batch size during evaluation and sampling, if enabled
-eval_batch_size: 16
-
-# debug mode (disables wandb, model checkpointing, etc.)
-debug: true
-
-# the port to use for FSDP
-# fsdp_port: null
-
-# which dataset(s) to train on; can pass a list like datasets=[hh,shp]
-datasets: "HuggingFaceH4/ultrafeedback_binarized"
-
-# wandb configuration
-wandb:
+# 1. set up the name of the experiment and if need debug
+exp_name: tdpo_kl # name for this experiment in the local run directory and on wandb
+wandb: # wandb configuration
   enabled: true
   entity: null
+  name: tdpo
   project: "direct-preference-optimization"
+debug: false # debug mode (disables wandb, model checkpointing, etc.)
 
-# to create the local run directory and cache models/datasets,
-#   we will try each of these directories in order; if none exist,
-#   we will create the last one and use it
-local_dirs: .cache
-
-# whether or not to generate samples during evaluation; disable for FSDP/TensorParallel
-#   is recommended, because they are slow
-sample_during_eval: true
-
-# how many model samples to generate during evaluation
-n_eval_model_samples: 16
-
-# whether to eval at the very beginning of training
-do_first_eval: true
-
-# an OmegaConf resolver that returns the local run directory, calling a function in utils.py
-local_run_dir: null
-
-# the learning rate
-lr_begin: 0
-lr_final: 5e-6 
-warmup_steps: 150 # number of linear warmup steps for the learning rate
-
-# number of steps to accumulate over for each batch
-#   (e.g. if batch_size=4 and gradient_accumulation_steps=2, then we will
-#   accumulate gradients over 2 microbatches of size 2)
-gradient_accumulation_steps: 16
-max_grad_norm: 10.0 # the maximum gradient norm to clip to
-
-# the maximum allowed length for an input (prompt + response)
-max_length: 1024
-max_prompt_length: 256 # the maximum allowed length for a prompt
-
-# the number of epochs to train for; if null, must specify n_examples
-n_epochs: 1
-epoch_begin: 0
-epoch_steps: 200_000
-save_steps: 2000
-
-# the number of examples to train for; if null, must specify n_epochs
-n_examples: null
-
-# the number of examples to evaluate on (and sample from, if sample_during_eval is true)
-n_eval_examples: 256
-
-# the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer)
-trainer: BasicTrainer
-
-# The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
-optimizer: RMSprop
-
-
-# whether or not to use activation/gradient checkpointing
-activation_checkpointing: true
-
-# evaluate and save model every eval_every steps
-eval_every: 20_000
-
-# prevent wandb from logging more than once per minimum_log_interval_secs
-minimum_log_interval_secs: 1.0
-
-# how many gpus will be used during training process
-devices: 2
-
-# precision
-precision: 16-mixed
-
-result_dir: "results"
-
-log_every_n_steps: 1
-
+# 2. set up the datasets and model path
+datasets: "HuggingFaceH4/ultrafeedback_binarized" # which dataset(s) to train on; can pass a list like datasets=[hh,shp]
 defaults:
 - _self_
-- model: gemma-2-2b # basic model configuration
-- loss: tdpo_kl # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- model: qwen15-05 # basic model configuration
+- loss: tdpo # which loss function, either sft or dpo (specify loss.beta if using dpo)
+
+# 3. set up the training parameters
+seed: 39 # random seed for batch sampling
+batch_size: 4 # the batch size for training; for FSDP, the batch size per GPU is batch_size / (grad_accumulation_steps * num_gpus)
+eval_batch_size: 8 # the batch size during evaluation and sampling, if enabled
+sample_during_eval: true # whether or not to generate samples during evaluation; disable for FSDP/TensorParallel
+local_dirs: .cache # to create the local run directory and cache models/datasets,
+n_eval_model_samples: 16 # how many model samples to generate during evaluation
+do_first_eval: true # whether to eval at the very beginning of training
+local_run_dir: null # an OmegaConf resolver that returns the local run directory, calling a function in utils.py
+lr_begin: 0
+lr_final: 5e-6 # the learning rate
+warmup_steps: 150 # number of linear warmup steps for the learning rate
+gradient_accumulation_steps: 8 # number of steps to accumulate over for each batch
+max_grad_norm: 10.0 # the maximum gradient norm to clip to
+max_length: 1024 # the maximum allowed length for an input (prompt + response)
+max_prompt_length: 256 # the maximum allowed length for a prompt
+n_epochs: 1 # the number of epochs to train for; if null, must specify n_examples
+epoch_begin: 0
+epoch_steps: 200_000
+save_steps: 1000
+n_examples: null # the number of examples to train for; if null, must specify n_epochs
+n_eval_examples: 256 # the number of examples to evaluate on (and sample from, if sample_during_eval is true)
+trainer: BasicTrainer # the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer)
+optimizer: RMSprop # The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
+activation_checkpointing: true # whether or not to use activation/gradient checkpointing
+eval_every: 20_000 # evaluate and save model every eval_every steps
+minimum_log_interval_secs: 1.0 # prevent wandb from logging more than once per minimum_log_interval_secs
+devices: 1 # how many gpus will be used during training process
+precision: 16-mixed # precision
+result_dir: results/tdpo_kl
+log_every_n_steps: 1

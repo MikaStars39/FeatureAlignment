@@ -10,10 +10,10 @@ from torch import optim, nn, utils, Tensor
 from transformers import AutoModelForCausalLM
 from omegaconf import DictConfig
 from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
-from .utils import disable_dropout
+from .utils import disable_dropout, qwen_process_text
 from .sae import replace_sae_with_reture_feature_acts
 from .jump_relu_sae import JumpReLUSAE
-from .metric import (
+from .loss import (
     tdpo_loss,
     tdpo_kl_loss,
     dpo_loss
@@ -33,6 +33,7 @@ from typing import (
 )
 
 from .transformers_model.modeling_gemma2 import Gemma2ForCausalLM
+from .transformers_model.modeling_qwen2 import Qwen2ForCausalLM
 
 # define the LightningModule
 class FeatureLevelDPOModel(L.LightningModule):
@@ -45,19 +46,30 @@ class FeatureLevelDPOModel(L.LightningModule):
         self.config = config
         self.policy = None
         self.reference = None
-        self.feature_map = feature_map
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained("google/gemma-2b-it")
+        self.chosen_feature_map, self.rejected_feature_map = feature_map
+        if self.chosen_feature_map is not None:
+            self.chosen_feature_map.to(self.device)
+            self.rejected_feature_map.to(self.device)
+
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained(config.model.name_or_path)
+    
+    def _get_model_name(self):
+        if "gemma2" in self.config.model.name_or_path:
+            return Gemma2ForCausalLM
+        elif "Qwen1.5" in self.config.model.name_or_path:
+            return Qwen2ForCausalLM
 
     def configure_model(self):
         if self.policy is not None or self.reference is not None:
             return
         else:
             # ---------- load policy and reference model -------------
+            MODEL = self._get_model_name()
             # policy model
-            rank_zero_info('building policy model into lightning model')
+            rank_zero_info(f'building policy model {self.config.model.name_or_path}')
             # model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
             policy_dtype = getattr(torch, self.config.model.policy_dtype)
-            self.policy = Gemma2ForCausalLM.from_pretrained(
+            self.policy = MODEL.from_pretrained(
                 self.config.model.name_or_path, 
                 # low_cpu_mem_usage=True, 
                 # torch_dtype=policy_dtype,
@@ -67,9 +79,9 @@ class FeatureLevelDPOModel(L.LightningModule):
             rank_zero_info('successfully built policy model into lightning model')
 
             # reference model
-            rank_zero_info('building reference model')
+            rank_zero_info(f'building reference model {self.config.model.name_or_path}')
             reference_model_dtype = getattr(torch, self.config.model.reference_dtype)
-            self.reference = Gemma2ForCausalLM.from_pretrained(
+            self.reference = MODEL.from_pretrained(
                 self.config.model.name_or_path, 
                 low_cpu_mem_usage=True, 
                 # torch_dtype=reference_model_dtype
@@ -79,8 +91,9 @@ class FeatureLevelDPOModel(L.LightningModule):
             rank_zero_info('successfully built reference model')
 
             rank_zero_info('building sae model')
-
-            if config.release:
+            sae_encoder = replace_sae_with_reture_feature_acts()
+            rank_zero_info(f'building sae{self.config.model.sae_encoder_name_or_path}')
+            if self.config.model.release:
                 if "gemma-scope-2b" in self.config.model.sae_encoder_name_or_path:
                     path_to_params = hf_hub_download(
                         repo_id=self.config.model.sae_encoder_name_or_path,
@@ -91,9 +104,8 @@ class FeatureLevelDPOModel(L.LightningModule):
                     pt_params = {k: torch.from_numpy(v).cuda() for k, v in params.items()}
                     sae_encoder = JumpReLUSAE(params['W_enc'].shape[0], params['W_enc'].shape[1])
                     sae_encoder.load_state_dict(pt_params)
-
                 else:
-                    sae_encoder = replace_sae_with_reture_feature_acts()
+                    # sae_encoder = replace_sae_with_reture_feature_acts()
                     sae_encoder, _, _ = sae_encoder.from_pretrained(
                         release = self.config.model.sae_encoder_name_or_path, # see other options in sae_lens/pretrained_saes.yaml
                         sae_id = self.config.model.sae_id_name_or_path, # won't always be a hook point
@@ -101,8 +113,9 @@ class FeatureLevelDPOModel(L.LightningModule):
                     # rank_zero_info( self.policy.model.layers[self.config.model.sae_layer_id])
             else:
                 if "Qwen1.5-0.5" in self.config.model.name_or_path:
-                    sae_encoder_ = sae_encoder.load_from_pretrained(
-                        path=self.config.sae_encoder_name_or_path,
+                    sae_encoder = sae_encoder.load_from_pretrained(
+                        path=self.config.model.sae_encoder_name_or_path,
+                        dtype="float16"
                     )
             
             self.policy.model.layers[self.config.model.sae_layer_id].sae_encoder = sae_encoder
@@ -114,12 +127,12 @@ class FeatureLevelDPOModel(L.LightningModule):
                     param.requires_grad = False
 
             # print all submodules of policy and reference model
-            rank_zero_info('policy model submodules:')
-            for name, module in self.policy.named_modules():
-                rank_zero_info(f'{name}')
-            rank_zero_info('reference model submodules:')
-            for name, module in self.reference.named_modules():
-                rank_zero_info(f'{name}')
+            # rank_zero_info('policy model submodules:')
+            # for name, module in self.policy.named_modules():
+            #     rank_zero_info(f'{name}')
+            # rank_zero_info('reference model submodules:')
+            # for name, module in self.reference.named_modules():
+            #     rank_zero_info(f'{name}')
             
             # for dpo, we set the reference model to be eval mode
             for param in self.reference.parameters():
@@ -129,51 +142,17 @@ class FeatureLevelDPOModel(L.LightningModule):
         self, 
         batch: Dict[str, Union[List, torch.LongTensor]], 
     ):
-        if self.config.datasets == 'HuggingFaceH4/ultrafeedback_binarized':
-            chosen = batch["chosen"]
-            rejected = batch["rejected"]
-            for i in range(len(chosen)):
-                chosen[i]['role'] = chosen[i]['role'][0]
-                rejected[i]['role'] = rejected[i]['role'][0]
-        elif self.config.datasets == 'PKU-Alignment/PKU-SafeRLHF':
-            chosen = batch["response_0"]
-            rejected = batch["response_1"]
-            for i in range(len(chosen)):
-                chosen[i]['role'] = chosen[i]['role'][0]
-                rejected[i]['role'] = rejected[i]['role'][0]
-
-        chosen = self.tokenizer.apply_chat_template(
-            chosen, 
-            return_tensors="pt", 
-            padding=True, 
-            return_dict=True, 
-            truncation=True,
-            max_length=self.config.max_length,
-            padding_side="left", 
-            device=self.device
-        )
-        rejected = self.tokenizer.apply_chat_template(
-            rejected, 
-            return_tensors="pt", 
-            padding=True, 
-            truncation=True,
-            max_length=self.config.max_length,
-            return_dict=True, 
-            padding_side="left", 
-            device=self.device
-        )
         
-        # move the batch to the device
-        chosen['input_ids'] = chosen['input_ids'].to(self.device)
-        chosen['attention_mask'] = chosen['attention_mask'].to(self.device)
-        rejected['input_ids'] = rejected['input_ids'].to(self.device)
-        rejected['attention_mask'] = rejected['attention_mask'].to(self.device)
+        chosen, rejected = self._process_batch(batch)
 
         # get the features and output logits
         chosen_logits_policy, chosen_feature_acts_policy = self.policy(**chosen, use_cache=False)
         rejected_logits_policy, rejected_feature_acts_policy = self.policy(**rejected, use_cache=False)
 
-        if torch.isnan(chosen_logits_policy).any() or torch.isnan(chosen_feature_acts_policy).any() or torch.isnan(rejected_logits_policy).any() or torch.isnan(rejected_feature_acts_policy).any():
+        if torch.isnan(chosen_logits_policy).any() or \
+            torch.isnan(chosen_feature_acts_policy).any() or \
+            torch.isnan(rejected_logits_policy).any() or \
+            torch.isnan(rejected_feature_acts_policy).any():
             raise ValueError("nan in logits or feature_acts")
 
         feature_acts_chosen = chosen_feature_acts_policy.float()
@@ -190,26 +169,35 @@ class FeatureLevelDPOModel(L.LightningModule):
         # Compute TDPO loss or other loss
         beta = self.config.loss.beta
         alpha = self.config.loss.alpha
+
+        c_labels=chosen['input_ids']
+        r_labels=rejected['input_ids']
         
         if self.config.loss.name == "dpo":
-            losses, chosen_rewards, rejected_rewards = dpo_loss(
-                feature_acts_chosen=feature_acts_chosen,
-                feature_acts_rejected=feature_acts_rejected,
+            losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = dpo_loss(
                 policy_chosen_logps=policy_chosen_logps,
+                policy_rejected_logps=policy_rejected_logps,
                 reference_chosen_logps=reference_chosen_logps,
+                reference_rejected_logps=reference_rejected_logps,
+                c_labels=c_labels,
+                c_mask=chosen['attention_mask'],
+                r_labels=r_labels,
+                r_mask=rejected['attention_mask'],
                 beta=beta,
             )
         elif self.config.loss.name == "tdpo":
             sae_lambda = self.config.loss.sae_lambda
             losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = tdpo_loss(
-                policy_chosen_logps[:, :-1, :],
-                reference_chosen_logps[:, :-1, :],
-                policy_rejected_logps[:, :-1, :],
-                reference_rejected_logps[:, :-1, :],
+                policy_chosen_logps,
+                reference_chosen_logps,
+                policy_rejected_logps,
+                reference_rejected_logps,
                 feature_acts_chosen=feature_acts_chosen,
                 feature_acts_rejected=feature_acts_rejected,
-                c_labels=chosen['input_ids'][:, 1:],
-                r_labels=rejected['input_ids'][:, 1:],
+                c_labels=c_labels,
+                r_labels=r_labels,
+                c_mask=chosen['attention_mask'],
+                r_mask=rejected['attention_mask'],
                 beta=beta,
                 alpha=alpha,
                 sae_lambda=sae_lambda,
@@ -218,20 +206,23 @@ class FeatureLevelDPOModel(L.LightningModule):
             )
         elif self.config.loss.name == "tdpo_kl":
             losses, chosen_rewards, rejected_rewards, chosen_kl, rejected_kl = tdpo_kl_loss(
-                policy_chosen_logps[:, :-1, :].contiguous(),
-                reference_chosen_logps[:, :-1, :].contiguous(),
-                policy_rejected_logps[:, :-1, :].contiguous(),
-                reference_rejected_logps[:, :-1, :].contiguous(),
+                policy_chosen_logps,
+                reference_chosen_logps,
+                policy_rejected_logps,
+                reference_rejected_logps,
                 pi_feature_acts_chosen=feature_acts_chosen,
                 pi_feature_acts_rejected=feature_acts_rejected,
-                ref_feature_acts_chosen=chosen_feature_acts_reference.float(),
-                ref_feature_acts_rejected=rejected_feature_acts_reference.float(),
-                c_labels=chosen['input_ids'][:, 1:].contiguous(),
-                r_labels=rejected['input_ids'][:, 1:].contiguous(),
+                ref_feature_acts_chosen=chosen_feature_acts_reference,
+                ref_feature_acts_rejected=rejected_feature_acts_reference,
+                c_labels=c_labels,
+                r_labels=r_labels,
+                c_mask=chosen['attention_mask'],
+                r_mask=rejected['attention_mask'],
                 beta=beta,
                 alpha=alpha,
                 delta=0.5,
-                feature_map=self.feature_map
+                chosen_feature_map=self.chosen_feature_map,
+                rejected_feature_map=self.rejected_feature_map,
             )
         else: raise ValueError("loss name not recognized")
 
@@ -261,18 +252,65 @@ class FeatureLevelDPOModel(L.LightningModule):
             # "logps_rejected": policy_rejected_logps.detach().cpu().numpy(),
         }
 
-            # loss, chosen_rewards, rejected_rewards = self.feature_level_loss(
-            #     feature_acts_chosen=chosen_feature_acts_policy,
-            #     feature_acts_rejected=rejected_feature_acts_policy,
-            #     policy_chosen_logps=chosen_logits_policy,
-            #     policy_rejected_logps=rejected_logits_policy,
-            #     reference_chosen_logps=chosen_logits_reference,
-            #     reference_rejected_logps=rejected_logits_reference,
-            #     # label_smoothing=self.config.loss.label_smoothing,
-            #     beta=self.config.loss.beta,
-            # )
+    def test_step(
+        self, 
+        batch: Dict[str, Union[List, torch.LongTensor]], 
+        batch_idx: int,
+    ):
+        # this is the test loop
+        x, _ = batch
+        x = x.view(x.size(0), -1)
+        z = self.encoder(x)
+        x_hat = self.decoder(z)
+        test_loss = F.mse_loss(x_hat, x)
+        self.log("test_loss", test_loss)
 
+    def _process_batch(self, batch):
+        if self.config.datasets == 'HuggingFaceH4/ultrafeedback_binarized':
+            chosen = batch["chosen"]
+            rejected = batch["rejected"]
+            # for i in range(len(chosen)):
+            #     chosen[i]['role'] = chosen[i]['role'][0]
+            #     rejected[i]['role'] = rejected[i]['role'][0]
+            #     chosen[i]['content'] = chosen[i]['content'][0]
+            #     rejected[i]['content'] = rejected[i]['content'][0]
+        else: raise NotImplementedError("Not a support dataset")
 
+        # joint text process
+        chosen = qwen_process_text(
+                chosen,
+                self.config.batch_size,
+                self.tokenizer
+            )
+        rejected = qwen_process_text(
+                rejected,
+                self.config.batch_size,
+                self.tokenizer
+            )
+        # connect two lists
+        chosen.extend(rejected)
+
+        combined = self.tokenizer(
+            chosen,
+            return_tensors="pt", 
+            padding=True, 
+            truncation=True,
+            max_length=self.config.max_length,
+        )
+
+        # get the chosen and rejected
+        batch_size = len(rejected) if len(rejected) < self.config.batch_size else self.config.batch_size
+        chosen = {k: v[:self.config.batch_size, :] for k, v in combined.items()}
+        rejected = {k: v[self.config.batch_size:, :] for k, v in combined.items()}
+        
+        # move the batch to the device
+        chosen['input_ids'] = chosen['input_ids'].to(self.device)
+        chosen['attention_mask'] = chosen['attention_mask'].to(self.device)
+        rejected['input_ids'] = rejected['input_ids'].to(self.device)
+        rejected['attention_mask'] = rejected['attention_mask'].to(self.device)
+
+        return chosen, rejected
+    
     def configure_optimizers(self):
         config = self.config
         optimizer = torch.optim.AdamW(

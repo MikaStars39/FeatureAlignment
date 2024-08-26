@@ -65,6 +65,9 @@ def load_data(config: DictConfig = None, datasets: str = None):
     elif datasets == 'PKU-Alignment/PKU-SafeRLHF':
         train_dataset = load_dataset('PKU-Alignment/PKU-SafeRLHF', split="train")
         test_dataset = load_dataset('PKU-Alignment/PKU-SafeRLHF', split="test")
+    elif datasets == 'datasets/safety_only_data_Instructions_DPO.json':
+        train_dataset = load_dataset('json', data_files="datasets/safety_only_data_Instructions_DPO.json", split="train")
+        test_dataset = None
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -156,22 +159,23 @@ def main(config: DictConfig):
 
     # create a run name with name and time
     current_time = time.localtime()
-    run_name = f"feature-level-dpo_{current_time.tm_year}-{current_time.tm_mon}-{current_time.tm_mday}-" \
-    f"{current_time.tm_hour}-{current_time.tm_min}-{current_time.tm_sec}"
+    run_name = f'{config.wandb.name}_{current_time.tm_year}-{current_time.tm_mon}-{current_time.tm_mday}-{current_time.tm_hour}-{current_time.tm_min}-{current_time.tm_sec}'
     wandb_logger = None if config.debug else WandbLogger(project='feature-level-dpo', name=run_name)
 
     train_dataloader, test_dataloader = load_data(config)
 
-    feature_train_dataloader, _ = load_data(config, datasets='PKU-Alignment/PKU-SafeRLHF')
+    feature_train_dataloader, _ = load_data(config, datasets='datasets/safety_only_data_Instructions_DPO.json')
 
-    # load model
-    chosen_feature_map, rejected_feature_map = get_feature_map(
-        model_name_or_path=config.model.name_or_path,
-        device="cuda",
-        dataloader=feature_train_dataloader,
-        sae_encoder_name_or_path=config.model.sae_encoder_name_or_path,
-        sae_layer_id=config.model.sae_layer_id,
-    )
+    # get feature map
+    if config.loss.name == "tdpo_kl":
+        chosen_feature_map, rejected_feature_map = get_feature_map(
+            model_name_or_path=config.model.name_or_path,
+            device="cuda",
+            dataloader=feature_train_dataloader,
+            sae_encoder_name_or_path=config.model.sae_encoder_name_or_path,
+            sae_layer_id=config.model.sae_layer_id,
+        )
+    else: chosen_feature_map, rejected_feature_map = None, None
 
     rank_zero_info("-------- loading model -----------")
     model = FeatureLevelDPOModel(config=config, feature_map=(chosen_feature_map, rejected_feature_map))
@@ -179,7 +183,6 @@ def main(config: DictConfig):
             dirpath=config.result_dir,
             every_n_train_steps=config.save_steps,
             filename=run_name + '{epoch}-{step}',
-            save_top_k=-1
         )
 
     # wandb settings
@@ -214,7 +217,7 @@ def main(config: DictConfig):
     # get trainer
     trainer = L.Trainer(
         accelerator="gpu", 
-        strategy="deepspeed_stage_1",
+        strategy="ddp",
         devices=config.devices,
         # num_nodes=args.num_nodes,
         precision=config.precision,
