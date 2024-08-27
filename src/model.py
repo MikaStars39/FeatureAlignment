@@ -10,7 +10,7 @@ from torch import optim, nn, utils, Tensor
 from transformers import AutoModelForCausalLM
 from omegaconf import DictConfig
 from lightning.pytorch.utilities import rank_zero_info, rank_zero_only
-from .utils import disable_dropout, qwen_process_text
+from .utils import disable_dropout, process_text
 from .sae import replace_sae_with_reture_feature_acts
 from .jump_relu_sae import JumpReLUSAE
 from .loss import (
@@ -240,16 +240,6 @@ class FeatureLevelDPOModel(L.LightningModule):
             "reward_margins": float(reward_margins.detach()),
             "kl_chosen": float(chosen_kl.detach()),
             "kl_rejected": float(rejected_kl.detach()),
-            # "logps_chosen": float(policy_chosen_logps.detach()),
-            # "logps_rejected": float(policy_rejected_logps.detach()),
-
-            # "rejected_rewards": rejected_rewards.detach().cpu().numpy(),
-            # "reward_accuracies": reward_accuracies.detach().cpu().numpy(),
-            # "reward_margins": reward_margins.detach().cpu().numpy(),
-            # "kl_chosen": feature_acts_chosen.detach().cpu().numpy(),
-            # "kl_rejected": feature_acts_rejected.detach().cpu().numpy(),
-            # "logps_chosen": policy_chosen_logps.detach().cpu().numpy(),
-            # "logps_rejected": policy_rejected_logps.detach().cpu().numpy(),
         }
 
     def test_step(
@@ -269,24 +259,24 @@ class FeatureLevelDPOModel(L.LightningModule):
         if self.config.datasets == 'HuggingFaceH4/ultrafeedback_binarized':
             chosen = batch["chosen"]
             rejected = batch["rejected"]
-            # for i in range(len(chosen)):
-            #     chosen[i]['role'] = chosen[i]['role'][0]
-            #     rejected[i]['role'] = rejected[i]['role'][0]
-            #     chosen[i]['content'] = chosen[i]['content'][0]
-            #     rejected[i]['content'] = rejected[i]['content'][0]
         else: raise NotImplementedError("Not a support dataset")
 
+        batch_size = len(chosen)
+
         # joint text process
-        chosen = qwen_process_text(
+        chosen = process_text(
+                self.config,
                 chosen,
-                self.config.batch_size,
+                batch_size,
                 self.tokenizer
             )
-        rejected = qwen_process_text(
+        rejected = process_text(
+                self.config,
                 rejected,
-                self.config.batch_size,
+                batch_size,
                 self.tokenizer
             )
+
         # connect two lists
         chosen.extend(rejected)
 
@@ -298,10 +288,8 @@ class FeatureLevelDPOModel(L.LightningModule):
             max_length=self.config.max_length,
         )
 
-        # get the chosen and rejected
-        batch_size = len(rejected) if len(rejected) < self.config.batch_size else self.config.batch_size
-        chosen = {k: v[:self.config.batch_size, :] for k, v in combined.items()}
-        rejected = {k: v[self.config.batch_size:, :] for k, v in combined.items()}
+        chosen = {k: v[:batch_size, :] for k, v in combined.items()}
+        rejected = {k: v[batch_size:, :] for k, v in combined.items()}
         
         # move the batch to the device
         chosen['input_ids'] = chosen['input_ids'].to(self.device)

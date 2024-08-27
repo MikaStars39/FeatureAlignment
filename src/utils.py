@@ -8,15 +8,16 @@ def disable_dropout(model: torch.nn.Module):
 def process_text(
     config,
     text,
+    batch_size: int,
     tokenizer,
 ):
     if "Qwen1.5-0.5B" in config.model.name_or_path:
         return qwen_process_text(
             text,
-            config.batch_size,
+            batch_size,
             tokenizer,
         )
-    else: return text
+    else: raise NotImplementedError(f"Model {config.model.name_or_path} not supported")
 
 def qwen_process_text(
     chosen: list,

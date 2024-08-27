@@ -1,18 +1,19 @@
 # 1. set up the name of the experiment and if need debug
-exp_name: tdpo_kl # name for this experiment in the local run directory and on wandb
+exp_name: tdpo # name for this experiment in the local run directory and on wandb
 wandb: # wandb configuration
   enabled: true
   entity: null
-  name: tdpo
+  name: tdpo-kl
   project: "direct-preference-optimization"
-debug: false # debug mode (disables wandb, model checkpointing, etc.)
+debug: true # debug mode (disables wandb, model checkpointing, etc.)
 
 # 2. set up the datasets and model path
 datasets: "HuggingFaceH4/ultrafeedback_binarized" # which dataset(s) to train on; can pass a list like datasets=[hh,shp]
+ckpt: /data3/qy_workspace/direct-preference-optimization/results/tdpo_2024-8-26-3-11-27/1000.ckpt # path to a model checkpoint to load; if null, will train from scratch
 defaults:
 - _self_
 - model: qwen15-05 # basic model configuration
-- loss: tdpo # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- loss: tdpo-kl # which loss function, either sft or dpo (specify loss.beta if using dpo)
 
 # 3. set up the training parameters
 seed: 39 # random seed for batch sampling
@@ -36,12 +37,14 @@ epoch_steps: 200_000
 save_steps: 1000
 n_examples: null # the number of examples to train for; if null, must specify n_epochs
 n_eval_examples: 256 # the number of examples to evaluate on (and sample from, if sample_during_eval is true)
-trainer: BasicTrainer # the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer)
 optimizer: RMSprop # The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
 activation_checkpointing: true # whether or not to use activation/gradient checkpointing
 eval_every: 20_000 # evaluate and save model every eval_every steps
 minimum_log_interval_secs: 1.0 # prevent wandb from logging more than once per minimum_log_interval_secs
 devices: 1 # how many gpus will be used during training process
 precision: 16-mixed # precision
-result_dir: results/tdpo_kl
+result_dir: results
 log_every_n_steps: 1
+
+# deprecated
+# trainer: BasicTrainer # the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer)

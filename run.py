@@ -1,7 +1,6 @@
 import torch
 torch.backends.cuda.matmul.allow_tf32 = True
 import os
-os.environ['XDG_CACHE_HOME'] = "cache"
 import time
 import hydra
 import wandb
@@ -162,27 +161,39 @@ def main(config: DictConfig):
     run_name = f'{config.wandb.name}_{current_time.tm_year}-{current_time.tm_mon}-{current_time.tm_mday}-{current_time.tm_hour}-{current_time.tm_min}-{current_time.tm_sec}'
     wandb_logger = None if config.debug else WandbLogger(project='feature-level-dpo', name=run_name)
 
+    # dataloader
     train_dataloader, test_dataloader = load_data(config)
-
     feature_train_dataloader, _ = load_data(config, datasets='datasets/safety_only_data_Instructions_DPO.json')
 
     # get feature map
-    if config.loss.name == "tdpo_kl":
+    if config.loss.name == "tdpo-kl":
+        rank_zero_info("-------- getting feature map -----------")
         chosen_feature_map, rejected_feature_map = get_feature_map(
             model_name_or_path=config.model.name_or_path,
             device="cuda",
             dataloader=feature_train_dataloader,
             sae_encoder_name_or_path=config.model.sae_encoder_name_or_path,
             sae_layer_id=config.model.sae_layer_id,
+            temperature=config.loss.temperature,
         )
     else: chosen_feature_map, rejected_feature_map = None, None
 
     rank_zero_info("-------- loading model -----------")
-    model = FeatureLevelDPOModel(config=config, feature_map=(chosen_feature_map, rejected_feature_map))
+    # load from checkpoint
+    if config.ckpt is not None:
+        model = FeatureLevelDPOModel.load_from_checkpoint(
+            config.ckpt,
+            config=config,
+            feature_map=(chosen_feature_map, rejected_feature_map)
+        )
+    else:
+        model = FeatureLevelDPOModel(config=config, feature_map=(chosen_feature_map, rejected_feature_map))
+
+    # ckpt callback
     model_checkpoint = ModelCheckpoint(
-            dirpath=config.result_dir,
+            dirpath=os.path.join(config.result_dir, run_name),
             every_n_train_steps=config.save_steps,
-            filename=run_name + '{epoch}-{step}',
+            filename=str(run_name + '{epoch}-{step}'),
         )
 
     # wandb settings

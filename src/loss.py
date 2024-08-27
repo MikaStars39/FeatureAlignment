@@ -148,6 +148,11 @@ def tdpo_kl_loss(
 
     chosen_rewards = pi_chosen_per_token_logps - ref_chosen_per_token_logps
     rejected_rewards = pi_rejected_per_token_logps - ref_rejected_per_token_logps
+    
+    # debug
+    d0 = min(chosen_rewards.shape[0], rejected_rewards.shape[0])
+    chosen_rewards = chosen_rewards[:d0].contiguous()
+    rejected_rewards = rejected_rewards[:d0].contiguous()
     rewards = chosen_rewards - rejected_rewards
 
     # token kl
@@ -166,7 +171,7 @@ def tdpo_kl_loss(
     rejected_kl = token_rejected_kl * (1 - delta) + feature_rejected_kl * delta
 
     # loss
-    values = rewards - alpha * (rejected_kl - chosen_kl.detach())
+    values = rewards - alpha * (rejected_kl - chosen_kl)
     losses = -F.logsigmoid(beta * values)
 
     chosen_kl = token_chosen_kl.mean()
