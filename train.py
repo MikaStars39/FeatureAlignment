@@ -211,6 +211,8 @@ def main(config: DictConfig):
         print("Feature map registered into the policy")
         reference_model.register_buffer("chosen_fm", chosen_fm)
         print("Feature map registered into the reference model")
+        
+        chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
 
         # import sae encoder
         policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)

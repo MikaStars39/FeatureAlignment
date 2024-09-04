@@ -195,7 +195,7 @@ def tdpo_kl_get_batch_logps(
     pi_fm = pi_fm[:, :-1, :]
     ref_fm = ref_fm[:, :-1, :]
 
-    fm = fm.unsqueeze(1).repeat(1, logits.size(1), 1)
+    fm = fm.unsqueeze(0).unsqueeze(0).repeat(1, logits.size(1), 1)
     pi_fm = pi_fm * fm
     ref_fm = ref_fm * fm
     reference_logits = reference_logits[:, :-1, :]

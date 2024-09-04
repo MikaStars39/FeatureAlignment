@@ -14,7 +14,7 @@ mode: ???
 debug: false
 
 # whether to use FSDP
-use_fsdp: true
+use_fsdp: false
 
 # the port to use for FSDP
 fsdp_port: null

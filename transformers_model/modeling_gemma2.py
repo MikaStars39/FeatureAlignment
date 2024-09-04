@@ -600,7 +600,7 @@ class Gemma2DecoderLayer(nn.Module):
         self.sae_encoder = None
 
     def set_encoder(self, encoder):
-        self.sae_encoder = encoder.to(self.mlp.up_proj.weight.device)
+        self.sae_encoder = encoder.to(self.mlp.up_proj.weight.dtype).to(self.mlp.up_proj.weight.device)
 
     def forward(
         self,

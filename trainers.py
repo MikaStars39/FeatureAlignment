@@ -895,7 +895,7 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
             reference_all_fm = reference_outputs.feature_acts.to(self.policy_dtype)
 
-        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], all_fm, reference_all_fm, average_log_prob=False)
+        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], all_fm, reference_all_fm, model.chosen_fm, average_log_prob=False)
 
         chosen_logps_margin = all_logps_margin[:batch['chosen_input_ids'].shape[0]]
         rejected_logps_margin = all_logps_margin[batch['chosen_input_ids'].shape[0]:]
