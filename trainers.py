@@ -874,8 +874,8 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         alpha = self.config.loss.alpha
         beta = self.config.loss.beta
         gamma = self.config.loss.gamma
-        logits = chosen_rejected_logps_margin - alpha*(rejected_position_kl - chosen_position_kl.detach())
-        losses = -F.logsigmoid(beta * logits - gamma)
+        logits = beta * (chosen_rejected_logps_margin - gamma)
+        losses = -F.logsigmoid(logits - alpha*(rejected_position_kl - chosen_position_kl.detach()))
 
         chosen_rewards = beta * chosen_values.detach()
         rejected_rewards = beta * rejected_values.detach()
