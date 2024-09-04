@@ -116,9 +116,12 @@ def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average
     else:
         return (per_token_logps * loss_mask).sum(-1)
 
-
-def tdpo_get_batch_logps(logits: torch.FloatTensor, reference_logits: torch.FloatTensor, labels: torch.LongTensor,
-                          average_log_prob: bool = False):
+def tdpo_get_batch_logps(
+    logits: torch.FloatTensor, 
+    reference_logits: torch.FloatTensor, 
+    labels: torch.LongTensor,
+    average_log_prob: bool = False,
+):
     """Compute the kl divergence/log probabilities of the given labels under the given logits.
 
     Args:
@@ -135,6 +138,7 @@ def tdpo_get_batch_logps(logits: torch.FloatTensor, reference_logits: torch.Floa
 
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
+   
     reference_logits = reference_logits[:, :-1, :]
 
     loss_mask = (labels != -100)
@@ -160,7 +164,73 @@ def tdpo_get_batch_logps(logits: torch.FloatTensor, reference_logits: torch.Floa
     else:
         return (logps_margin * loss_mask).sum(-1), \
             (per_position_kl * loss_mask).sum(-1), \
-            (per_token_logps * loss_mask).sum(-1)
+            (per_token_logps * loss_mask).sum(-1), \
+
+
+def tdpo_kl_get_batch_logps(
+    logits: torch.FloatTensor, 
+    reference_logits: torch.FloatTensor, 
+    labels: torch.LongTensor,
+    pi_fm: torch.FloatTensor = None,
+    ref_fm: torch.FloatTensor = None,
+    fm: torch.FloatTensor = None,
+    average_log_prob: bool = False,
+):
+    """Compute the kl divergence/log probabilities of the given labels under the given logits.
+
+    Args:
+        logits: Logits of the model (unnormalized). Shape: (batch_size, sequence_length, vocab_size)
+        reference_logits: Logits of the reference model (unnormalized). Shape: (batch_size, sequence_length, vocab_size)
+        labels: Labels for which to compute the log probabilities. Label tokens with a value of -100 are ignored. Shape: (batch_size, sequence_length)
+        average_log_prob: If True, return the average log probability per (non-masked) token. Otherwise, return the sum of the log probabilities of the (non-masked) tokens.
+
+    Returns:
+        Several tensors of shape (batch_size,) containing the average/sum kl divergence/log probabilities of the given labels under the given logits.
+    """
+    assert logits.shape[:-1] == labels.shape
+    assert reference_logits.shape[:-1] == labels.shape
+
+    labels = labels[:, 1:].clone()
+    logits = logits[:, :-1, :]
+    pi_fm = pi_fm[:, :-1, :]
+    ref_fm = ref_fm[:, :-1, :]
+
+    fm = fm.unsqueeze(1).repeat(1, logits.size(1), 1)
+    pi_fm = pi_fm * fm
+    ref_fm = ref_fm * fm
+    reference_logits = reference_logits[:, :-1, :]
+
+    loss_mask = (labels != -100)
+
+    # dummy token; we'll ignore the losses on these tokens later
+    labels[labels == -100] = 0
+
+    vocab_logps = logits.log_softmax(-1)
+
+    reference_vocab_ps = reference_logits.softmax(-1)
+    reference_vocab_logps = reference_vocab_ps.log()
+
+    per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
+    per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+
+    pi_fm_ps = pi_fm.softmax(-1)
+    ref_fm_ps = ref_fm.softmax(-1) + 1e-8
+    ref_fm_logps = ref_fm_ps.log()
+
+    fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
+
+    logps_margin = per_token_logps - per_reference_token_logps
+
+    if average_log_prob:
+        return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
+               (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1), \
+               (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
+    else:
+        return (logps_margin * loss_mask).sum(-1), \
+            (per_position_kl * loss_mask).sum(-1), \
+            (per_token_logps * loss_mask).sum(-1), \
+            (fm_kl * loss_mask).sum(-1)
 
 
 def clip_by_value(x, tensor_min, tensor_max):

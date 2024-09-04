@@ -42,6 +42,7 @@ import random
 import dataloader
 import gc
 from utils import delete_dict
+from huggingface_hub import login
 
 
 def worker_main(rank: int, world_size: int, config: DictConfig, tokenizer: AutoTokenizer, train_iterator: dataloader.DataLoader, eval_iterator: dataloader.DataLoader, policy: nn.Module, reference_model: Optional[nn.Module] = None):
@@ -94,6 +95,9 @@ def main(config: DictConfig):
 
     os.makedirs(config.local_run_dir, exist_ok=True)
     print("Making experiment directory", config.local_run_dir)
+
+    # login with Hugging Face token
+    login(token="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")
     
     set_seed(config.seed)
 
@@ -177,6 +181,31 @@ def main(config: DictConfig):
             reference_model.resize_token_embeddings(len(tokenizer))
         else:
             policy.resize_token_embeddings(len(tokenizer))
+    
+    if config.loss.name == "tdpo-kl":
+        chosen_fm, _, sae_encoder = get_feature_map(
+            model_name_or_path="google/gemma-2-2b-it",
+            device="cuda",
+            sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
+            sae_layer_id=0,
+            temperature=1.0,
+            visualize=True,
+            cache_dir=".cache",
+            release=True,
+        )
+
+        # register chosen feature map into the policy
+        policy.register_buffer("chosen_fm", chosen_fm)
+        print("Feature map registered into the policy")
+        reference_model.register_buffer("chosen_fm", chosen_fm)
+        print("Feature map registered into the reference model")
+
+        # import sae encoder
+        policy.set_encoder(sae_encoder)
+        print("SAE encoder registered into the policy")
+        reference_model.set_encoder(sae_encoder)
+        print("SAE encoder registered into the reference model")
+        
 
     print(f"{num_added} special tokens added")
 
