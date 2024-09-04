@@ -43,6 +43,7 @@ import dataloader
 import gc
 from utils import delete_dict
 from huggingface_hub import login
+from feature_map import get_feature_map
 
 
 def worker_main(rank: int, world_size: int, config: DictConfig, tokenizer: AutoTokenizer, train_iterator: dataloader.DataLoader, eval_iterator: dataloader.DataLoader, policy: nn.Module, reference_model: Optional[nn.Module] = None):
@@ -133,14 +134,25 @@ def main(config: DictConfig):
 
     print('building policy')
     model_class = AutoModelForCausalLMWithValueHead if config.loss.name == 'ppo' else AutoModelForCausalLM
-    policy = model_class.from_pretrained(
-        config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
+
+    if config.loss.name == 'tdpo-kl':
+        from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
+        policy = Gemma2ForCausalLM.from_pretrained(
+            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
+    else:
+        policy = model_class.from_pretrained(
+            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
     disable_dropout(policy)
 
     if config.loss.use_reference_model:
         print('building reference model')
-        reference_model = AutoModelForCausalLM.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
+        if config.loss.name == 'tdpo-kl':
+            from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
+            reference_model = Gemma2ForCausalLM.from_pretrained(
+                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
+        else:
+            reference_model = AutoModelForCausalLM.from_pretrained(
+                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
         disable_dropout(reference_model)
     else:
         reference_model = None
@@ -187,7 +199,7 @@ def main(config: DictConfig):
             model_name_or_path="google/gemma-2-2b-it",
             device="cuda",
             sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
-            sae_layer_id=0,
+            sae_layer_id=12,
             temperature=1.0,
             visualize=True,
             cache_dir=".cache",
@@ -201,9 +213,9 @@ def main(config: DictConfig):
         print("Feature map registered into the reference model")
 
         # import sae encoder
-        policy.set_encoder(sae_encoder)
+        policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the policy")
-        reference_model.set_encoder(sae_encoder)
+        reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")
         
 

@@ -18,7 +18,7 @@ def get_feature_map(
     visualize: bool = True,
     cache_dir: str = ".cache",
     batch_size: int = 8,
-    total_samples: int = 1000,
+    total_samples: int = 100,
     release: bool = True,
 ):
     # load safe.json
@@ -158,9 +158,9 @@ get_feature_map(
     model_name_or_path="google/gemma-2-2b-it",
     device="cuda",
     sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
-    sae_layer_id=0,
+    sae_layer_id=12,
     temperature=1.0,
     visualize=True,
-    cache_dir="/mnt/localdisk15/.cache",
+    cache_dir=".cache",
     release=True,
 )
