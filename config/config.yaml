@@ -79,7 +79,7 @@ n_samples: 128
 samples_dir: "samples/"
 
 # the number of examples to evaluate on (leave as null to evaluate on all of them)
-n_eval_examples: 2
+n_eval_examples: 64
 
 # where the aligned policy model is stored
 saved_policy: null
