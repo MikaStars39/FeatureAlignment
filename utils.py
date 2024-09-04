@@ -214,9 +214,9 @@ def tdpo_kl_get_batch_logps(
     per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
-    pi_fm_ps = pi_fm.softmax(-1)
-    ref_fm_ps = ref_fm.softmax(-1) + 1e-8
-    ref_fm_logps = ref_fm_ps.log()
+    pi_fm_ps = (pi_fm.softmax(-1) + 1e-4).log()
+    ref_fm_ps = ref_fm.softmax(-1)
+    ref_fm_logps = (ref_fm_ps  + 1e-4).log()
 
     fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
 

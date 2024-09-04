@@ -642,15 +642,27 @@ class Gemma2DecoderLayer(nn.Module):
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = residual + hidden_states
 
+
         residual = hidden_states
         hidden_states = self.pre_feedforward_layernorm(hidden_states)
+        # check if nan in hidden_states after layernorm
+        if torch.isnan(hidden_states).any():
+            raise ValueError("NaN detected in hidden_states after layernorm")
         hidden_states = self.mlp(hidden_states)
+        # check if nan in hidden_states after mlp
+        if torch.isnan(hidden_states).any():
+            raise ValueError("NaN detected in hidden_states after mlp")
         hidden_states = self.post_feedforward_layernorm(hidden_states)
+        if torch.isnan(hidden_states).any():
+            raise ValueError("NaN detected in hidden_states after layernormddd")
         hidden_states = residual + hidden_states
 
         feature_acts = None
         if self.sae_encoder is not None:
             feature_acts = self.sae_encoder.encode(hidden_states)
+        
+        if torch.isnan(hidden_states).any():
+            raise ValueError("NaN detected in hidden_states after residual")
 
         outputs = (hidden_states,)
 
@@ -896,7 +908,8 @@ class Gemma2Model(Gemma2PreTrainedModel):
 
         feature_acts = None
 
-        for decoder_layer in self.layers:
+        for i, decoder_layer in enumerate(self.layers):
+
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
@@ -926,7 +939,7 @@ class Gemma2Model(Gemma2PreTrainedModel):
                 feature_acts = _feature_acts
 
             hidden_states = layer_outputs[0]
-
+                
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
@@ -1079,6 +1092,7 @@ class Gemma2ForCausalLM(Gemma2PreTrainedModel):
             return_dict=return_dict,
             cache_position=cache_position,
         )
+        
 
         hidden_states = outputs[0]
         logits = self.lm_head(hidden_states)

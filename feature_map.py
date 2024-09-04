@@ -1,7 +1,7 @@
 import torch
 import tqdm
 import os
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download, login
 import numpy as np
@@ -25,7 +25,6 @@ def get_feature_map(
     dataset = load_dataset("json", data_files="safe.json", split="train")
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=8)
     
-
     # login with Hugging Face token
     login(token="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")
 
@@ -53,7 +52,7 @@ def get_feature_map(
     else:
         if "gemma-2" in model_name_or_path:
             from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
-            model = Gemma2ForCausalLM.from_pretrained(
+            model = AutoModelForCausalLM.from_pretrained(
                 model_name_or_path, 
                 low_cpu_mem_usage=True, 
             )
@@ -66,10 +65,11 @@ def get_feature_map(
         else:
             raise NotImplementedError(f"Model {model_name_or_path} not supported")
         
-        tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-2b-it")
-        disable_dropout(model)
+        tokenizer = AutoTokenizer.from_pretrained("google/gemma-2-2b")
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        # disable_dropout(model)
 
-        model.model.layers[sae_layer_id].set_encoder(sae_encoder)
+        # model.model.layers[sae_layer_id].set_encoder(sae_encoder)
 
         model.to(device)
         model.eval()
@@ -84,52 +84,31 @@ def get_feature_map(
             chosen = batch["chosen"]
             rejected = batch["rejected"]
 
-            for i in range(len(chosen)):
-                chosen[i] = [
-                    {
-                        'content': chosen[i],
-                        'role': 'user',
-                    },
-                    {
-                        'content': chosen[i],
-                        'role': 'assistant',
-                    }
-                ]
-                rejected[i] = [
-                    {
-                        'content': rejected[i],
-                        'role': 'user',
-                    },
-                    {
-                        'content': rejected[i],
-                        'role': 'assistant',
-                    }
-                ]
-
-            chosen = tokenizer.apply_chat_template(
+            chosen = tokenizer(
                 chosen, 
                 return_tensors="pt", 
                 padding=True, 
-                return_dict=True, 
                 truncation=True,
                 max_length=1024,
-                padding_side="left", 
             )
 
-            rejected = tokenizer.apply_chat_template(
+            rejected = tokenizer(
                 rejected,
                 return_tensors="pt",
                 padding=True,
-                return_dict=True,
                 truncation=True,
                 max_length=1024,
-                padding_side="left",
             )
 
             chosen['input_ids'] = chosen['input_ids'].to(device)
             chosen['attention_mask'] = chosen['attention_mask'].to(device)
             rejected['input_ids'] = rejected['input_ids'].to(device)
             rejected['attention_mask'] = rejected['attention_mask'].to(device)
+
+            # get logits and test is nan
+            logits = model(**chosen, use_cache=False).logits
+            if torch.isnan(logits).any():
+                raise ValueError("NaN in logits")
 
             chosen_feature_acts_reference = model(**chosen, use_cache=False).feature_acts
             rejected_feature_acts_reference = model(**rejected, use_cache=False).feature_acts
@@ -143,6 +122,10 @@ def get_feature_map(
                 rejected_feature_map = rejected_feature_acts_reference.mean(dim=[0, 1]).detach()
             else:
                 rejected_feature_map += rejected_feature_acts_reference.mean(dim=[0, 1]).detach()
+            
+            # check if nan in chosen_feature_map and rejected_feature_map
+            if torch.isnan(chosen_feature_map).any() or torch.isnan(rejected_feature_map).any():
+                raise ValueError("NaN in chosen_feature_map or rejected_feature_map")
         
         # chosen_feature_map = (chosen_feature_map / temperature).softmax(dim=-1)
         # rejected_feature_map = (rejected_feature_map / temperature).softmax(dim=-1)
@@ -151,11 +134,15 @@ def get_feature_map(
         torch.save(rejected_feature_map, cache_file_rejected)
         print(f"Feature maps saved to {cache_file_chosen} and {cache_file_rejected}")
 
+        # check if nan in chosen_feature_map and rejected_feature_map
+        if torch.isnan(chosen_feature_map).any() or torch.isnan(rejected_feature_map).any():
+            raise ValueError("NaN in chosen_feature_map or rejected_feature_map")
+
     return chosen_feature_map, rejected_feature_map, sae_encoder
 
 
 get_feature_map(
-    model_name_or_path="google/gemma-2-2b-it",
+    model_name_or_path="google/gemma-2-2b",
     device="cuda",
     sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
     sae_layer_id=12,

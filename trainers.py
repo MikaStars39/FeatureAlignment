@@ -890,6 +890,7 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         fm = model.chosen_fm.to(self.policy_dtype)
         all_logits = outputs.logits.to(self.policy_dtype)
         all_fm = outputs.feature_acts.to(self.policy_dtype)
+
         with torch.no_grad():
             reference_outputs = self.reference_model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral))
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
@@ -917,6 +918,25 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
 
         chosen_logps_margin, rejected_logps_margin, chosen_position_kl, rejected_position_kl, policy_chosen_logps, policy_rejected_logps, chosen_fm_kl, rejected_fm_kl\
                 = self.forward(self.policy, batch)
+
+        # check if nan in all outputs from forward and print which
+        # if torch.isnan(chosen_logps_margin).any():
+        #     print('chosen_logps_margin nan')
+        # if torch.isnan(rejected_logps_margin).any():
+        #     print('rejected_logps_margin nan')
+        # if torch.isnan(chosen_position_kl).any():
+        #     print('chosen_position_kl nan')
+        # if torch.isnan(rejected_position_kl).any():
+        #     print('rejected_position_kl nan')
+        # if torch.isnan(policy_chosen_logps).any():
+        #     print('policy_chosen_logps nan')
+        # if torch.isnan(policy_rejected_logps).any():
+        #     print('policy_rejected_logps nan')
+        # if torch.isnan(chosen_fm_kl).any():
+        #     print('chosen_fm_kl nan')
+        # if torch.isnan(rejected_fm_kl).any():
+        #     print('rejected_fm_kl nan')
+        
         losses, chosen_rewards, rejected_rewards = self.loss(chosen_logps_margin, rejected_logps_margin,
                                                             chosen_fm_kl, rejected_fm_kl)
 
