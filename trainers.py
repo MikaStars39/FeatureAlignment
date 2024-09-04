@@ -887,16 +887,29 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         """
         concatenated_batch = self.concatenated_inputs(batch)
         outputs = model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral))
-        fm = model.chosen_fm.to(self.policy_dtype)
         all_logits = outputs.logits.to(self.policy_dtype)
         all_fm = outputs.feature_acts.to(self.policy_dtype)
+
+        # check if model.fm exists
+        if hasattr(model, 'fm'):
+            model.cnt += 1
+            model.fm += all_fm.mean([0, 1])
+            # if cnt == 1000, save the model.fm as pt in .cache/fm/fm/pt
+            if model.cnt == 1000:
+                torch.save(model.fm, '.cache/fm/fm.pt')
+                model.cnt = 0
+                model.fm = torch.zeros_like(model.fm)
+                exit()
+        else:
+            model.cnt = 1
+            model.fm = all_fm.mean([0, 1])
 
         with torch.no_grad():
             reference_outputs = self.reference_model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral))
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
             reference_all_fm = reference_outputs.feature_acts.to(self.policy_dtype)
 
-        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], all_fm, reference_all_fm, model.chosen_fm, average_log_prob=False)
+        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], all_fm, reference_all_fm, average_log_prob=False)
 
         chosen_logps_margin = all_logps_margin[:batch['chosen_input_ids'].shape[0]]
         rejected_logps_margin = all_logps_margin[batch['chosen_input_ids'].shape[0]:]

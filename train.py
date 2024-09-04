@@ -195,7 +195,7 @@ def main(config: DictConfig):
             policy.resize_token_embeddings(len(tokenizer))
     
     if config.loss.name == "tdpo-kl":
-        chosen_fm, _, sae_encoder = get_feature_map(
+        sae_encoder = get_feature_map(
             model_name_or_path="google/gemma-2-2b-it",
             device="cuda",
             sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
@@ -206,19 +206,20 @@ def main(config: DictConfig):
             release=True,
         )
 
-        # register chosen feature map into the policy
-        policy.register_buffer("chosen_fm", chosen_fm)
-        print("Feature map registered into the policy")
-        reference_model.register_buffer("chosen_fm", chosen_fm)
-        print("Feature map registered into the reference model")
+        # # register chosen feature map into the policy
+        # policy.register_buffer("chosen_fm", chosen_fm)
+        # print("Feature map registered into the policy")
+        # reference_model.register_buffer("chosen_fm", chosen_fm)
+        # print("Feature map registered into the reference model")
         
-        chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
+        # chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
 
         # import sae encoder
         policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the policy")
         reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")
+        # init a fm in policy
         
 
     print(f"{num_added} special tokens added")
@@ -239,6 +240,7 @@ def main(config: DictConfig):
         chosen_control_token=(config.loss.chosen_control_token if config.loss.name == "csft" else None),
         rejected_control_token=(config.loss.rejected_control_token if config.loss.name == "csft" else None),
     )
+
     train_iterator = data_loader_class(
         config.datasets, 
         tokenizer,
