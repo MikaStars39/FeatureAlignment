@@ -208,7 +208,7 @@ def tdpo_kl_get_batch_logps(
 
     per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
     per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    # per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
     pi_fm_ps = (pi_fm.softmax(-1) + 1e-4).log()
     ref_fm_ps = ref_fm.softmax(-1)
@@ -216,7 +216,10 @@ def tdpo_kl_get_batch_logps(
 
     fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
 
-    logps_margin = per_token_logps
+    logps_margin = per_token_logps - per_reference_token_logps
+
+    # L2 Normalize
+    per_token_logps = per_token_logps / torch.norm(per_token_logps, p=2, dim=1, keepdim=True)
 
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \

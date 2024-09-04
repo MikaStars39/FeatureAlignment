@@ -219,6 +219,8 @@ def main(config: DictConfig):
         print("SAE encoder registered into the policy")
         reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")
+        # load .cache/fm.pt into policy.fm
+        policy.fm = torch.load(".cache/fm.pt").to(policy.device)
         # init a fm in policy
         
 
