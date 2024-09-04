@@ -161,6 +161,6 @@ get_feature_map(
     sae_layer_id=0,
     temperature=1.0,
     visualize=True,
-    cache_dir=".cache",
+    cache_dir="/mnt/localdisk15/.cache",
     release=True,
 )

@@ -1,4 +1,4 @@
-export XDG_CACHE_HOME=.cache
-export CUDA_VISIBLE_DEVICES=6
+export XDG_CACHE_HOME=/mnt/localdisk15/.cache
+export CUDA_VISIBLE_DEVICES=0
 
-python feature_map.py
+python3 feature_map.py
