@@ -174,6 +174,8 @@ def tdpo_kl_get_batch_logps(
     pi_fm: torch.FloatTensor = None,
     ref_fm: torch.FloatTensor = None,
     average_log_prob: bool = False,
+    temperature: float = 1,
+    k: int = 100,
 ):
     """Compute the kl divergence/log probabilities of the given labels under the given logits.
 
@@ -210,16 +212,17 @@ def tdpo_kl_get_batch_logps(
     per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
-    pi_fm_ps = (pi_fm.softmax(-1) + 1e-4).log()
-    ref_fm_ps = ref_fm.softmax(-1)
+    # select the top k elemets in ref_fm amd pi_fm
+    pi_fm, indices = torch.topk(pi_fm, k, dim=-1)
+    ref_fm = torch.gather(ref_fm, dim=-1, index=indices)
+
+    ref_fm_ps = (ref_fm / temperature).softmax(-1)
+    pi_fm_ps = ((pi_fm * ref_fm_ps / temperature).softmax(-1) + 1e-4).log()
     ref_fm_logps = (ref_fm_ps  + 1e-4).log()
 
     fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
 
     logps_margin = per_token_logps - per_reference_token_logps
-
-    # L2 Normalize
-    per_token_logps = per_token_logps / torch.norm(per_token_logps, p=2, dim=1, keepdim=True)
 
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
@@ -228,7 +231,7 @@ def tdpo_kl_get_batch_logps(
     else:
         return (logps_margin * loss_mask).sum(-1), \
             (per_position_kl * loss_mask).sum(-1), \
-            (per_token_logps * loss_mask).sum(-1), \
+            (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1), \
             (fm_kl * loss_mask).sum(-1)
 
 

@@ -4,4 +4,4 @@ defaults:
 name_or_path: google/gemma-2-2b
 block_name: Gemma2DecoderLayer
 use_flash_attention: true
-sae_layer_id: 12
+sae_layer_id: 25
