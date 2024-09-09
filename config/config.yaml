@@ -28,7 +28,7 @@ wandb:
 # where trained models will be saved
 # use HF environmental variables to control where the datasets, pretrained Huggingface models, etc. are saved 
 # relevant HF env variables are TRANSFORMERS_CACHE, HF_DATASETS_CACHE, HF_MODULES_CACHE, HF_METRICS_CACHE
-cache_dir: .cache/
+cache_dir: /mnt/weka/cache/
 
 local_run_dir: ${cache_dir}/${exp_name}
 
@@ -67,7 +67,7 @@ optimizer: RMSprop
 warmup_steps: 150
 
 # evaluate and save model every eval_every steps
-eval_every: 20_000
+eval_every: 2000
 
 
 ### EVALUATION SETTINGS
@@ -79,7 +79,7 @@ n_samples: 128
 samples_dir: "samples/"
 
 # the number of examples to evaluate on (leave as null to evaluate on all of them)
-n_eval_examples: 64
+n_eval_examples: 512
 
 # where the aligned policy model is stored
 saved_policy: null
