@@ -875,8 +875,9 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         alpha = self.config.loss.alpha
         beta = self.config.loss.beta
         gamma = self.config.loss.gamma
+        gammas = torch.clip(alpha*(rejected_position_kl - chosen_position_kl.detach()), min=gamma, max=gamma*2)
         logits = beta * (chosen_rejected_logps_margin - gamma)
-        losses = -F.logsigmoid(logits - alpha*(rejected_position_kl - chosen_position_kl.detach()))
+        losses = -F.logsigmoid(logits)
 
         chosen_rewards = beta * chosen_values.detach()
         rejected_rewards = beta * rejected_values.detach()
@@ -973,11 +974,12 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         metrics[f'logps_{mode}/chosen'] = policy_chosen_logps.float().cpu().numpy().tolist()
 
         # kl
-        metrics[f'kl_{mode}/chosen'] = chosen_logps_margin.float().detach().cpu().numpy().tolist()
-        metrics[f'kl_{mode}/rejected'] = rejected_logps_margin.float().detach().cpu().numpy().tolist()
-        metrics[f'kl_{mode}/margin'] = (chosen_logps_margin - rejected_logps_margin).float().detach().cpu().numpy().tolist()
-        metrics[f'kl_{mode}/fm'] = fm_kl.float().detach().cpu().numpy().tolist()
-
+        metrics[f'kl_{mode}/chosen'] = chosen_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/rejected'] = rejected_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/margin'] = (chosen_position_kl - rejected_position_kl).float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/fm margin'] = fm_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/fm chosen'] = chosen_fm_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/fm rejected'] = rejected_fm_kl.float().detach().cpu().numpy().tolist()
         metrics[f'loss/{mode}'] = all_devices_losses.float().cpu().numpy().tolist()
 
         del chosen_rewards, rejected_rewards, reward_accuracies, policy_chosen_logps, policy_rejected_logps, all_devices_losses

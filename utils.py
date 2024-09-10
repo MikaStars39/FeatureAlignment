@@ -175,7 +175,7 @@ def tdpo_kl_get_batch_logps(
     ref_fm: torch.FloatTensor = None,
     average_log_prob: bool = False,
     temperature: float = 1,
-    k: int = 100,
+    k: int = 20,
 ):
     """Compute the kl divergence/log probabilities of the given labels under the given logits.
 
