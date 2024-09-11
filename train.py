@@ -218,12 +218,15 @@ def main(config: DictConfig):
         policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the policy")
         # freeze the sae encoder
-        policy.model.layers[config.model.sae_layer_id].sae_encoder.eval()
+        policy.model.layers[config.model.sae_layer_id].sae_encoder
         
         reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")
         # load .cache/fm.pt into policy.fm
-        policy.fm = torch.load(".cache/top_fm.pt").to(policy.device)
+        policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
+        policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
+        print("Feature map loaded into the policy")
+
         # init a fm in policy
 
             # check if policy.model.layers[config.model.sae_layer_id].sae_encoder does not have any learnable parameters

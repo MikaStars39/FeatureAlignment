@@ -798,6 +798,9 @@ class TDPO1Trainer(PairedPreferenceTrainer):
         metrics[f'logps_{mode}/rejected'] = policy_rejected_logps.float().cpu().numpy().tolist()
         metrics[f'logps_{mode}/chosen'] = policy_chosen_logps.float().cpu().numpy().tolist()
         metrics[f'loss/{mode}'] = all_devices_losses.float().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/chosen'] = chosen_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/rejected'] = rejected_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/margin'] = (chosen_position_kl - rejected_position_kl).float().detach().cpu().numpy().tolist()
 
         del chosen_rewards, rejected_rewards, reward_accuracies, policy_chosen_logps, policy_rejected_logps, all_devices_losses
 
@@ -876,7 +879,7 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         beta = self.config.loss.beta
         gamma = self.config.loss.gamma
         gammas = torch.clip(alpha*(rejected_position_kl - chosen_position_kl.detach()), min=gamma, max=gamma*2)
-        logits = beta * (chosen_rejected_logps_margin - gamma)
+        logits = beta * (chosen_rejected_logps_margin - gammas)
         losses = -F.logsigmoid(logits)
 
         chosen_rewards = beta * chosen_values.detach()
@@ -897,20 +900,37 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
             reference_all_fm = reference_outputs.feature_acts.to(self.policy_dtype)
 
-        reference_all_fm = model.fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0).repeat(all_fm.shape[0], all_fm.shape[1], 1)
+        reference_chosen_fm = model.chosen_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
+        reference_chosen_fm = reference_chosen_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
+        reference_rejected_fm = model.rejected_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
+        reference_rejected_fm = reference_rejected_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
+        reference_all_fm = torch.cat((reference_chosen_fm, reference_rejected_fm), 0)
+
         # check if self.fm exists
-        # if hasattr(self, 'fm'):
-        #     self.fm += reference_all_fm.mean([0,1])
+        # if hasattr(self, 'chosen_fm'):
+        #     self.chosen_fm += reference_all_fm[:reference_all_fm.shape[0]//2, :, :].mean([0,1])
+        #     self.rejected_fm += reference_all_fm[reference_all_fm.shape[0]//2:, :, :].mean([0,1])
         #     self.cnt += 1
-        #     if self.cnt == 500:
-        #         self.fm = self.fm / self.cnt
-        #         torch.save(self.fm, '.cache/top_fm.pt')
+        #     print(self.cnt)
+        #     if self.cnt == 1000:
+        #         self.chosen_fm /= self.cnt
+        #         self.rejected_fm /= self.cnt
+        #         torch.save(self.chosen_fm, '.cache/chosen_fm.pt')
+        #         torch.save(self.rejected_fm, '.cache/rejected_fm.pt')
         #         exit()
         # else:
-        #     self.fm = reference_all_fm.mean([0,1])
+        #     self.chosen_fm = reference_all_fm[:reference_all_fm.shape[0]//2, :, :].mean([0,1])
+        #     self.rejected_fm = reference_all_fm[reference_all_fm.shape[0]//2:, :, :].mean([0,1])
         #     self.cnt = 1
 
-        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], all_fm, reference_all_fm, average_log_prob=False)
+        all_logps_margin, all_position_kl, all_logps, all_fm = tdpo_kl_get_batch_logps(
+            all_logits, 
+            reference_all_logits, 
+            concatenated_batch['concatenated_labels'], 
+            all_fm, 
+            reference_all_fm, 
+            average_log_prob=False
+        )
 
         chosen_logps_margin = all_logps_margin[:batch['chosen_input_ids'].shape[0]]
         rejected_logps_margin = all_logps_margin[batch['chosen_input_ids'].shape[0]:]
@@ -1143,7 +1163,6 @@ class FDPOKLTrainer(PairedPreferenceTrainer):
 
         return losses.mean(), metrics
 
-
 class DPOSigmoidTrainer(PairedPreferenceTrainer):
        def loss(self,
              policy_chosen_logps: torch.FloatTensor,
@@ -1193,13 +1212,33 @@ class ORPOTrainer(PairedPreferenceTrainer):
         rejected_rewards = (policy_rejected_logps - reference_rejected_logps).detach()
 
         return losses, chosen_rewards, rejected_rewards
+    
+    def forward(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]], average_log_prob=False) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+        """
+        concatenated_batch = self.concatenated_inputs(batch)
+        all_logits = model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral)).logits.to(self.policy_dtype)
+        with torch.no_grad():
+            reference_all_logits = self.reference_model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral)).logits.to(self.policy_dtype)
+
+        all_logps_margin, all_position_kl, all_logps = tdpo_get_batch_logps(all_logits, reference_all_logits, concatenated_batch['concatenated_labels'], average_log_prob=False)
+
+        chosen_logps_margin = all_logps_margin[:batch['chosen_input_ids'].shape[0]]
+        rejected_logps_margin = all_logps_margin[batch['chosen_input_ids'].shape[0]:]
+        chosen_position_kl = all_position_kl[:batch['chosen_input_ids'].shape[0]]
+        rejected_position_kl = all_position_kl[batch['chosen_input_ids'].shape[0]:]
+
+        chosen_logps = all_logps[:batch['chosen_input_ids'].shape[0]].detach()
+        rejected_logps = all_logps[batch['chosen_input_ids'].shape[0]:].detach()
+
+        return chosen_logps, rejected_logps, chosen_position_kl, rejected_position_kl
        
     def get_batch_metrics(self, batch: Dict[str, Union[List, torch.LongTensor]], mode: str=None):
         """Compute the loss and other metrics for the given batch of inputs."""
         metrics = {}
         if mode is None: mode = self.config.mode
 
-        policy_chosen_logps, policy_rejected_logps = self.forward(self.policy, batch, average_log_prob=True)
+        policy_chosen_logps, policy_rejected_logps, chosen_position_kl, rejected_position_kl = self.forward(self.policy, batch, average_log_prob=True)
         losses, chosen_rewards, rejected_rewards = self.loss(policy_chosen_logps, policy_rejected_logps)
        
         # accuracy calculated on unpaired examples (for apples-to-apples comparison with UnpairedPreferenceTrainer)
@@ -1219,6 +1258,9 @@ class ORPOTrainer(PairedPreferenceTrainer):
         metrics[f'logps_{mode}/rejected'] = policy_rejected_logps.float().cpu().numpy().tolist()
         metrics[f'logps_{mode}/chosen'] = policy_chosen_logps.float().cpu().numpy().tolist()
         metrics[f'loss/{mode}'] = all_devices_losses.float().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/chosen'] = chosen_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/rejected'] = rejected_position_kl.float().detach().cpu().numpy().tolist()
+        metrics[f'kl_{mode}/margin'] = (chosen_position_kl - rejected_position_kl).float().detach().cpu().numpy().tolist()
 
         del chosen_rewards, rejected_rewards, reward_accuracies, policy_chosen_logps, policy_rejected_logps, all_devices_losses
         if self.reference_model:
