@@ -152,9 +152,8 @@ def tdpo_get_batch_logps(
     reference_vocab_logps = reference_vocab_ps.log()
 
     per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
-    per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-
+    per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2) * loss_mask
+    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2) * loss_mask
     logps_margin = per_token_logps - per_reference_token_logps
 
     if average_log_prob:
@@ -222,14 +221,14 @@ def tdpo_kl_get_batch_logps(
 
     fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
 
-    logps_margin = per_token_logps - per_reference_token_logps
+    logps_margin = (per_token_logps * loss_mask).sum(-1) - (per_reference_token_logps  * loss_mask).sum(-1)
 
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
                (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1), \
                (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
     else:
-        return (logps_margin * loss_mask).sum(-1), \
+        return (logps_margin)/ loss_mask.sum(-1), \
             (per_position_kl * loss_mask).sum(-1), \
             (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1), \
             (fm_kl * loss_mask).sum(-1)

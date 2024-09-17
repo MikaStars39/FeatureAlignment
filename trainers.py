@@ -869,7 +869,11 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         chosen_values = chosen_logps_margin
         rejected_values = rejected_logps_margin
 
-        chosen_rejected_logps_margin = chosen_logps_margin - rejected_logps_margin
+        if self.config.loss.simpo:
+            chosen_rejected_logps_margin = chosen_logps_margin - rejected_logps_margin
+        else:
+            chosen_rejected_logps_margin = chosen_logps - rejected_logps
+
 
         # if not if_tdpo2:
         #     logits = chosen_rejected_logps_margin - (rejected_position_kl - chosen_position_kl)    # tdpo1
@@ -1263,8 +1267,6 @@ class ORPOTrainer(PairedPreferenceTrainer):
         metrics[f'kl_{mode}/margin'] = (chosen_position_kl - rejected_position_kl).float().detach().cpu().numpy().tolist()
 
         del chosen_rewards, rejected_rewards, reward_accuracies, policy_chosen_logps, policy_rejected_logps, all_devices_losses
-        if self.reference_model:
-            del reference_chosen_logps, reference_rejected_logps
 
         return losses.mean(), metrics
 

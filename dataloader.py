@@ -107,7 +107,7 @@ def get_alpacaeval(split: str, human_prefix: str, human_suffix: str, assistant_p
         raise ValueError('alpacaeval is only for evaluation')
 
     rank0_print(f'Loading AlpacaEval dataset ({split} split) from Huggingface...')
-    dataset = datasets.load_dataset('tatsu-lab/alpaca_eval', split=split)
+    dataset = datasets.load_dataset('tatsu-lab/alpaca_eval', split=split, trust_remote_code=True)
     if on_rank0():
         dataset = tqdm.tqdm(dataset, desc='Processing AlpacaEval')
 

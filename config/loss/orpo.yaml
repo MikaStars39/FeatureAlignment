@@ -8,4 +8,4 @@ trainer: ORPOTrainer
 
 dataloader: PairedPreferenceDataLoader
 
-use_reference_model: false
+use_reference_model: true

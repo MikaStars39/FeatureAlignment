@@ -76,7 +76,7 @@ def main(config: DictConfig):
         state_dict = torch.load(os.path.join(config.cache_dir, config.saved_policy), map_location='cpu')
         step, metrics = state_dict['step_idx'], state_dict['metrics']
         print(f'loading pre-trained weights for policy at step {step} from {config.saved_policy} with metrics {json.dumps(metrics, indent=2)}')
-        policy.load_state_dict(state_dict['state'])
+        policy.load_state_dict(state_dict['state'], strict=False)
     
     if config.mode == 'eval' and config.loss.use_reference_model:
         print('building reference model')
