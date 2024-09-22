@@ -710,6 +710,37 @@ class DPOTrainer(PairedPreferenceTrainer):
 
         return losses, chosen_rewards, rejected_rewards
 
+class SimPOTrainer(PairedPreferenceTrainer):
+    def forward(self, model: nn.Module, batch: Dict[str, Union[List, torch.LongTensor]], average_log_prob=True) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
+           Return two tensors of shape (batch size), one of the chosen examples, another of the rejected ones.
+
+           Returns:
+            chosen_logps: log probabilities of chosen examples (should be batch size / 2 if data was read in correctly)
+            rejected_logps: log probabilities of rejected examples (should be batch size / 2 if data was read in correctly)
+        """
+        concatenated_batch = self.concatenated_inputs(batch)
+        all_logits = model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral)).logits.to(self.policy_dtype)
+        all_logps = get_batch_logps(all_logits, concatenated_batch['concatenated_labels'], average_log_prob=True)
+        chosen_logps = all_logps[:batch['chosen_combined_input_ids'].shape[0]]
+        rejected_logps = all_logps[batch['chosen_combined_input_ids'].shape[0]:]
+        return chosen_logps, rejected_logps
+    def loss(self,
+            policy_chosen_logps: torch.FloatTensor,
+            policy_rejected_logps: torch.FloatTensor,
+            reference_chosen_logps: torch.FloatTensor,
+            reference_rejected_logps: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+        """Compute the DPO loss for a batch of policy and reference model log probabilities."""
+        pi_logratios = policy_chosen_logps - policy_rejected_logps
+        ref_logratios = reference_chosen_logps - reference_rejected_logps
+        logits = pi_logratios - ref_logratios
+
+        losses = -F.logsigmoid(self.config.loss.beta * logits - self.config.loss.gamma)
+        chosen_rewards = self.config.loss.beta * (policy_chosen_logps - reference_chosen_logps).detach()
+        rejected_rewards = self.config.loss.beta * (policy_rejected_logps - reference_rejected_logps).detach()
+
+        return losses, chosen_rewards, rejected_rewards
+
 
 class TDPO1Trainer(PairedPreferenceTrainer):
     def loss(self, chosen_logps_margin: torch.FloatTensor,
@@ -883,7 +914,7 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         beta = self.config.loss.beta
         gamma = self.config.loss.gamma
         gammas = torch.clip(alpha*(rejected_position_kl - chosen_position_kl.detach()), min=gamma, max=gamma*2)
-        logits = beta * (chosen_rejected_logps_margin - gammas)
+        logits = beta * (chosen_rejected_logps_margin - gammas) if not self.config.loss.simpo else beta * (chosen_rejected_logps_margin - gamma)
         losses = -F.logsigmoid(logits)
 
         chosen_rewards = beta * chosen_values.detach()
@@ -904,11 +935,11 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
             reference_all_fm = reference_outputs.feature_acts.to(self.policy_dtype)
 
-        reference_chosen_fm = model.chosen_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
-        reference_chosen_fm = reference_chosen_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
-        reference_rejected_fm = model.rejected_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
-        reference_rejected_fm = reference_rejected_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
-        reference_all_fm = torch.cat((reference_chosen_fm, reference_rejected_fm), 0)
+        # reference_chosen_fm = model.chosen_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
+        # reference_chosen_fm = reference_chosen_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
+        # reference_rejected_fm = model.rejected_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
+        # reference_rejected_fm = reference_rejected_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)
+        # reference_all_fm = torch.cat((reference_chosen_fm, reference_rejected_fm), 0)
 
         # check if self.fm exists
         # if hasattr(self, 'chosen_fm'):
@@ -933,7 +964,8 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
             concatenated_batch['concatenated_labels'], 
             all_fm, 
             reference_all_fm, 
-            average_log_prob=False
+            average_log_prob=False,
+            simpo=self.config.loss.simpo,
         )
 
         chosen_logps_margin = all_logps_margin[:batch['chosen_input_ids'].shape[0]]
@@ -956,24 +988,6 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
 
         chosen_logps_margin, rejected_logps_margin, chosen_position_kl, rejected_position_kl, policy_chosen_logps, policy_rejected_logps, chosen_fm_kl, rejected_fm_kl\
                 = self.forward(self.policy, batch)
-
-        # check if nan in all outputs from forward and print which
-        # if torch.isnan(chosen_logps_margin).any():
-        #     print('chosen_logps_margin nan')
-        # if torch.isnan(rejected_logps_margin).any():
-        #     print('rejected_logps_margin nan')
-        # if torch.isnan(chosen_position_kl).any():
-        #     print('chosen_position_kl nan')
-        # if torch.isnan(rejected_position_kl).any():
-        #     print('rejected_position_kl nan')
-        # if torch.isnan(policy_chosen_logps).any():
-        #     print('policy_chosen_logps nan')
-        # if torch.isnan(policy_rejected_logps).any():
-        #     print('policy_rejected_logps nan')
-        # if torch.isnan(chosen_fm_kl).any():
-        #     print('chosen_fm_kl nan')
-        # if torch.isnan(rejected_fm_kl).any():
-        #     print('rejected_fm_kl nan')
         
         losses, policy_chosen_logps, policy_rejected_logps, chosen_rewards, rejected_rewards = self.loss(policy_chosen_logps, policy_rejected_logps,
                                                             chosen_fm_kl, rejected_fm_kl, chosen_logps_margin, rejected_logps_margin)

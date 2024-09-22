@@ -174,7 +174,9 @@ def tdpo_kl_get_batch_logps(
     ref_fm: torch.FloatTensor = None,
     average_log_prob: bool = False,
     temperature: float = 1,
-    k: int = 20,
+    k: int = 50,
+    use_mse: bool = False,
+    simpo: bool = False,
 ):
     """Compute the kl divergence/log probabilities of the given labels under the given logits.
 
@@ -219,9 +221,11 @@ def tdpo_kl_get_batch_logps(
     pi_fm_ps = ((pi_fm * ref_fm_ps / temperature).softmax(-1) + 1e-4).log()
     ref_fm_logps = (ref_fm_ps  + 1e-4).log()
 
-    fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
-
-    logps_margin = (per_token_logps * loss_mask).sum(-1) - (per_reference_token_logps  * loss_mask).sum(-1)
+    fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1) if not use_mse else (ref_fm_ps - pi_fm_ps).pow(2).mean(-1)*5e-5
+ 
+    logps_margin = (per_token_logps * loss_mask).sum(-1)
+    if not simpo: 
+        logps_margin = logps_margin - (per_reference_token_logps  * loss_mask).sum(-1)
 
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
@@ -287,10 +291,7 @@ def fdpo_kl_get_batch_logps(
     pi_fm_ps = ((pi_fm * ref_fm_ps / temperature).softmax(-1) + 1e-4).log()
     ref_fm_logps = (ref_fm_ps  + 1e-4).log()
 
-    fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_ps)).sum(-1)
-   
-    fm_margin = (pi_fm_ps - ref_fm_logps).sum(dim=-1)
- 
+    
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
                (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1), \

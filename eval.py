@@ -42,7 +42,7 @@ def main(config: DictConfig):
     OmegaConf.resolve(config)
     print(OmegaConf.to_yaml(config))
 
-    if config.mode not in ['sample', 'eval', 'alpacaeval']:
+    if config.mode not in ['sample', 'eval', 'alpacaeval', 'arenahard']:
         raise Exception("This is a script for eval/sampling. config.mode should be one of 'sample', 'eval', or 'alpacaeval'")
 
     set_seed(config.seed)
@@ -162,6 +162,33 @@ def main(config: DictConfig):
 
         eval_iterator = dataloader.SFTDataLoader(
             ['alpacaeval'], 
+            tokenizer,
+            split='test',
+            batch_size=config.model.eval_batch_size,
+            n_examples=None,
+            n_epochs=1,
+            **data_iterator_kwargs
+        )
+
+        trainer = BasicTrainer(tokenizer, config, None, eval_iterator, policy, reference_model=reference_model)
+        samples = trainer.sample(include_original_prompt=True) 
+        alpaca_formatted_examples = []
+
+        for sample in samples:
+            alpaca_formatted_examples.append({
+                'instruction' : sample['original_prompt'],
+                'output': sample['policy'].strip(),
+                'reference' : sample['chosen'].strip(),
+            })
+        
+        fn = os.path.join(config.samples_dir, f'alpaca_{config.exp_name}.json')
+        json.dump(alpaca_formatted_examples, open(fn, 'w'), indent=2)
+    elif config.mode == 'arenahard':
+        print(f'Loading dataloader')
+        os.makedirs(config.samples_dir, exist_ok=True)
+
+        eval_iterator = dataloader.SFTDataLoader(
+            ['arenahard'], 
             tokenizer,
             split='test',
             batch_size=config.model.eval_batch_size,

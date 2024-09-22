@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from utils import rank0_print, on_rank0, delete_dict
 import pandas as pd
 import numpy as np
+import json
 
 
 @dataclass
@@ -121,6 +122,40 @@ def get_alpacaeval(split: str, human_prefix: str, human_suffix: str, assistant_p
         # keep original prompt so that it can be dumped into a JSON file before running the alpacaeval command
         data[prompt].original_prompt = row['instruction']
 
+    return data
+
+def get_arenahard(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
+    """
+    Load the arena-hard dataset from a jsonl file and convert it into a Dataset instance.
+    
+    Args:
+        jsonl_file_path: Path to the jsonl file containing the arena-hard dataset.
+        
+    Returns:
+        A Dataset instance.
+    """
+    data = Dataset('arena-hard')
+    jsonl_file_path = 'arena_questions.jsonl'
+    gpt4_file_path = 'gpt40613.jsonl'
+
+    # Open and read the jsonl file
+    with open(jsonl_file_path, 'r', encoding='utf-8') as file:
+        with open(gpt4_file_path, 'r', encoding='utf-8') as gpt4:
+            for line, gpt4_line in zip(file, gpt4):
+                row = json.loads(line.strip())
+                gpt4_row = json.loads(gpt4_line.strip())
+                
+                # Each 'turn' has a 'content', which is the prompt
+                prompt = human_prefix + row['turns'][0]['content'] + human_suffix + assistant_prefix
+                
+                # Create or update an Example for this prompt
+                data[prompt].prompt = prompt
+                data[prompt].dataset_name = row.get('category', 'arena-hard')
+                data[prompt].generations.append(gpt4_row['choices'][0]['turns'][0]['content'] + assistant_suffix)
+                data[prompt].original_prompt = prompt  # Storing the original prompt (content) as it is
+                
+                # Since arena-hard doesn't seem to have generations, you might add them later manually if needed
+            
     return data
 
 

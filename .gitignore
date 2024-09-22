@@ -6,3 +6,13 @@ results
 test
 wandb
 cache
+*.json
+weighted_alpaca_eval_gpt4_turbo
+samples
+assets
+alpaca_eval
+figures
+*.jsonl
+*.png
+*.sh
+*.csv

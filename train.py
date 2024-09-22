@@ -135,7 +135,7 @@ def main(config: DictConfig):
     print('building policy')
     model_class = AutoModelForCausalLMWithValueHead if config.loss.name == 'ppo' else AutoModelForCausalLM
 
-    if config.loss.name == 'tdpo-kl' or config.loss.name == 'fdpo-kl':
+    if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
         from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
         policy = Gemma2ForCausalLM.from_pretrained(
             config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
@@ -146,7 +146,7 @@ def main(config: DictConfig):
 
     if config.loss.use_reference_model:
         print('building reference model')
-        if config.loss.name == 'tdpo-kl' or config.loss.name == 'fdpo-kl':
+        if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
             from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
             reference_model = Gemma2ForCausalLM.from_pretrained(
                 config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
@@ -194,7 +194,7 @@ def main(config: DictConfig):
         else:
             policy.resize_token_embeddings(len(tokenizer))
     
-    if config.loss.name == "tdpo-kl" or config.loss.name == "fdpo-kl":
+    if config.loss.name == "tdpo-kl" or config.loss.name == "simpo":
         sae_encoder = get_feature_map(
             model_name_or_path="google/gemma-2-2b-it",
             device="cuda",
@@ -223,9 +223,9 @@ def main(config: DictConfig):
         reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")
         # load .cache/fm.pt into policy.fm
-        policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
-        policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
-        print("Feature map loaded into the policy")
+        # policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
+        # policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
+        # print("Feature map loaded into the policy")
 
         # init a fm in policy
 
