@@ -17,13 +17,14 @@ def parse_args():
     parser.add_argument('--max_length', type=int, default=100, help='Maximum length of the generated output')
     parser.add_argument('--output_file', type=str, default='alpaca_eval_results.json', help='File to save the generated results in JSON format')
     parser.add_argument('--max_batches', type=int, default=100, help='Maximum number of batches to process')
+    parser.add_argument('--temperature', type=float, default=1, help='Maximum number of batches to process')
     return parser.parse_args()
 
 # Batch generate responses
-def generate_responses(model, tokenizer, instructions, template, max_length):
+def generate_responses(model, tokenizer, instructions, template, max_length, temperature):
     prompts = [template.format(instruction) for instruction in instructions]
     inputs = tokenizer(prompts, return_tensors='pt', padding=True, truncation=True).input_ids.to('cuda')
-    outputs = model.generate(inputs, max_new_tokens=max_length, pad_token_id=tokenizer.eos_token_id)
+    outputs = model.generate(inputs, max_new_tokens=max_length, pad_token_id=tokenizer.eos_token_id, temperature=temperature, do_sample=True)
     responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
     return responses
 
@@ -56,10 +57,10 @@ def main():
     # Generate results
     results = []
     for i, batch in tqdm(enumerate(dataloader), total=args.max_batches // args.batch_size + 1):
-        if i >= args.max_batches:
+        if i >= (args.max_batches // args.batch_size + 1):
             break
         instructions = batch['turns'][0]['content']
-        responses = generate_responses(model, tokenizer, instructions, template, args.max_length)
+        responses = generate_responses(model, tokenizer, instructions, template, args.max_length, args.temperature)
         for instruction, response in zip(instructions, responses):
             result = {
                 "instruction": instruction,
