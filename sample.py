@@ -18,6 +18,7 @@ def parse_args():
     parser.add_argument('--output_file', type=str, default='alpaca_eval_results.json', help='File to save the generated results in JSON format')
     parser.add_argument('--max_batches', type=int, default=100, help='Maximum number of batches to process')
     parser.add_argument('--temperature', type=float, default=1, help='Maximum number of batches to process')
+    parser.add_argument('--entropy', type=bool, default=False, help='Maximum number of batches to process')
     return parser.parse_args()
 
 # Batch generate responses
@@ -28,6 +29,16 @@ def generate_responses(model, tokenizer, instructions, template, max_length, tem
     responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
     return responses
 
+def get_entropy(model, tokenizer, instructions, template, max_length, temperature):
+    prompts = [template.format(instruction) for instruction in instructions]
+    inputs = tokenizer(prompts, return_tensors='pt', padding=True, truncation=True).input_ids.to('cuda')
+    logits = model(inputs, return_dict=True).logits
+    probs = torch.nn.functional.softmax(logits, dim=-1)
+    log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
+    entropy = -torch.sum(probs * log_probs, dim=-1).mean(dim=-1)
+    return entropy
+
+@torch.no_grad()
 def main():
     # Parse the arguments
     args = parse_args()
@@ -56,26 +67,36 @@ def main():
 
     # Generate results
     results = []
+    entropy = 0
     for i, batch in tqdm(enumerate(dataloader), total=args.max_batches // args.batch_size + 1):
         if i >= (args.max_batches // args.batch_size + 1):
             break
         instructions = batch['turns'][0]['content']
-        responses = generate_responses(model, tokenizer, instructions, template, args.max_length, args.temperature)
-        for instruction, response in zip(instructions, responses):
-            result = {
-                "instruction": instruction,
-                "output": response,
-                "generator": "gemma",
-                "dataset": "helpful_base",  # This can be customized or dynamic based on dataset
-                "datasplit": args.split
-            }
-            results.append(result)
+        
+        if args.entropy:
+            # compute the logit entropy of the model
+            entropy += get_entropy(model, tokenizer, instructions, template, args.max_length, args.temperature)
+            results.append(entropy)
+        else:
+            responses = generate_responses(model, tokenizer, instructions, template, args.max_length, args.temperature)
+            for instruction, response in zip(instructions, responses):
+                result = {
+                    "instruction": instruction,
+                    "output": response,
+                    "generator": "gemma",
+                    "dataset": "helpful_base",  # This can be customized or dynamic based on dataset
+                    "datasplit": args.split
+                }
+                results.append(result)
 
-    # Save results to JSON file
-    with open(args.output_file, 'w') as f:
-        json.dump(results, f, indent=4)
+    if args.entropy:
+        print(f"Average entropy: {entropy.mean(dim=-1) / len(results)}")
+    else:
+        # Save results to JSON file
+        with open(args.output_file, 'w') as f:
+            json.dump(results, f, indent=4)
 
-    print(f"Results saved to {args.output_file}")
+        print(f"Results saved to {args.output_file}")
 
 if __name__ == "__main__":
     main()

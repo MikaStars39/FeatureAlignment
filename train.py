@@ -176,6 +176,7 @@ def main(config: DictConfig):
         torch.cuda.empty_cache()
 
         print('loaded pre-trained weights')
+    
 
     tokenizer_name_or_path = config.model.tokenizer_name_or_path or config.model.name_or_path
     print(f'Loading tokenizer {tokenizer_name_or_path}')
@@ -194,10 +195,9 @@ def main(config: DictConfig):
         else:
             policy.resize_token_embeddings(len(tokenizer))
     
-    if config.loss.name == "tdpo-kl" or config.loss.name == "simpo":
+    if config.loss.name == "tdpo-kl":
         sae_encoder = get_feature_map(
             model_name_or_path="google/gemma-2-2b-it",
-            device="cuda",
             sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
             sae_layer_id=12,
             temperature=1.0,
@@ -217,8 +217,6 @@ def main(config: DictConfig):
         # import sae encoder
         policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the policy")
-        # freeze the sae encoder
-        policy.model.layers[config.model.sae_layer_id].sae_encoder
         
         reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
         print("SAE encoder registered into the reference model")

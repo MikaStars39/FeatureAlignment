@@ -4,28 +4,29 @@
 # mamba activate qy
 # cd hongwei/qy_workspace/emo-dit-qy/emo-fsdp
 export XDG_CACHE_HOME=/mnt/weka/qy/cache/hf
-CUDA_VISIBLE_DEVICES=7 python3 sample.py \
+CUDA_VISIBLE_DEVICES=6 python3 sample.py \
     --model_name_or_path google/gemma-2-2b \
-    --checkpoint_path /mnt/weka/qy/cache/cache/sft-gemma-2-2b/LATEST/policy.pt \
+    --checkpoint_path /mnt/weka/qy/cache/tdpo-kl-005/LATEST/policy.pt \
     --dataset_name arena_questions.jsonl \
     --split train \
-    --batch_size 8 \
+    --batch_size 4 \
     --max_length 2000 \
     --output_file samples/sft-06.json \
     --max_batches 100 \
-    --temperature 0.6
+    --temperature 1 \
+    --entropy true
 
-CUDA_VISIBLE_DEVICES=7 python3 sample.py \
-    --model_name_or_path google/gemma-2-2b \
-    --checkpoint_path /mnt/weka/qy/cache/cache/tdpo-kl-gemma-2-2b-dpo/LATEST/policy.pt \
-    --dataset_name arena_questions.jsonl \
-    --split train \
-    --batch_size 8 \
-    --max_length 2000 \
-    --output_file samples/tdpo-kl-06.json \
-    --max_batches 100 \
-    --temperature 0.6
+# CUDA_VISIBLE_DEVICES=7 python3 sample.py \
+#     --model_name_or_path google/gemma-2-2b \
+#     --checkpoint_path /mnt/weka/qy/cache/cache/tdpo-kl-gemma-2-2b-dpo/LATEST/policy.pt \
+#     --dataset_name arena_questions.jsonl \
+#     --split train \
+#     --batch_size 8 \
+#     --max_length 2000 \
+#     --output_file samples/tdpo-kl-06.json \
+#     --max_batches 100 \
+#     --temperature 0.6
     
-export OPENAI_API_KEY=sk-XsCVDLd3COd5LTGcC89c09393cE444C1A1C8A6Cf2fF1D3B2
-export OPENAI_BASE_URL=https://api.shubiaobiao.cn/v1
-alpaca_eval --model_outputs 'samples/tdpo-kl-06.json' --reference_outputs='samples/sft-06.json'
+# export OPENAI_API_KEY=sk-XsCVDLd3COd5LTGcC89c09393cE444C1A1C8A6Cf2fF1D3B2
+# export OPENAI_BASE_URL=https://api.shubiaobiao.cn/v1
+# alpaca_eval --model_outputs 'samples/tdpo-kl-06.json' --reference_outputs='samples/sft-06.json'

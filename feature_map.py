@@ -11,7 +11,6 @@ from utils import disable_dropout
 @torch.no_grad()
 def get_feature_map(
     model_name_or_path: str,
-    device: str,
     sae_encoder_name_or_path: int,
     sae_layer_id: int,
     temperature: float = 1.0,
@@ -140,14 +139,3 @@ def get_feature_map(
 
     return sae_encoder
 
-
-get_feature_map(
-    model_name_or_path="google/gemma-2-2b",
-    device="cuda",
-    sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
-    sae_layer_id=12,
-    temperature=1.0,
-    visualize=True,
-    cache_dir=".cache",
-    release=True,
-)

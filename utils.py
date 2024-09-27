@@ -194,8 +194,9 @@ def tdpo_kl_get_batch_logps(
 
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
-    pi_fm = pi_fm[:, :-1, :]
-    ref_fm = ref_fm[:, :-1, :]
+    if pi_fm is not None:
+        pi_fm = pi_fm[:, :-1, :]
+        ref_fm = ref_fm[:, :-1, :]
 
     reference_logits = reference_logits[:, :-1, :]
 
@@ -209,7 +210,10 @@ def tdpo_kl_get_batch_logps(
     reference_vocab_ps = reference_logits.softmax(-1)
     reference_vocab_logps = reference_vocab_ps.log()
 
-    per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
+    if pi_fm is not None:
+        per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
+    else:
+        per_position_kl = torch.zeros_like(labels).sum(-1)
     per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
@@ -241,15 +245,23 @@ def tdpo_kl_get_batch_logps(
     # exit()
 
     # select the top k elemets in ref_fm amd pi_fm
-    pi_fm, indices = torch.topk(pi_fm, k, dim=-1)
-    ref_fm = torch.gather(ref_fm, dim=-1, index=indices)
+    if pi_fm is not None:
+        ref_fm = (ref_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
+        pi_fm = (pi_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
 
-    ref_fm_ps = (ref_fm / temperature).softmax(-1)
-    pi_fm_ps = (pi_fm / temperature).softmax(-1)
-    pi_fm_logps = (pi_fm_ps + 1e-4).log()
-    ref_fm_logps = (ref_fm_ps  + 1e-4).log()
+        pi_fm, indices = torch.topk(pi_fm, k, dim=-1)
+        ref_fm = torch.gather(ref_fm, dim=-1, index=indices)
 
-    fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_logps)).sum(-1) if not use_mse else (ref_fm_ps.mean(dim=1) - pi_fm_ps.mean(dim=1)).pow(2).mean(-1)
+        # ref_fm_ps = (ref_fm / temperature).softmax(-1)
+        # pi_fm_ps = (pi_fm / temperature).softmax(-1)
+        # pi_fm_logps = (pi_fm_ps + 1e-4).log()
+        # ref_fm_logps = (ref_fm_ps  + 1e-4).log()
+
+        # fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_logps)).sum(-1) if not use_mse else 
+        # print(ref_fm_ps.shape)
+        fm_kl = (ref_fm - pi_fm).pow(2).mean(-1)
+    else:
+        fm_kl = torch.zeros_like(per_position_kl).sum(-1)
 
  
     logps_margin = (per_token_logps * loss_mask).sum(-1)
@@ -264,7 +276,7 @@ def tdpo_kl_get_batch_logps(
         return (logps_margin) / loss_mask.sum(-1), \
             (per_position_kl * loss_mask).sum(-1), \
             (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1), \
-            (fm_kl * loss_mask).sum(-1)
+            fm_kl
 
 def fdpo_kl_get_batch_logps(
     logits: torch.FloatTensor, 
