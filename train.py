@@ -1,25 +1,4 @@
-# Copyright (c) 2023 Contextual AI, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-"""
-Main script for training.
 
-Sample use is:
-
-python train.py loss=ppo model=llama30b datasets=[shp,hh,oasst] exp_name=archangel_sft+ppo_llama30b mode=train \
-     ++cache_dir=/data/models/archangel ++model.load_from=archangel_sft_llama30b/LATEST/policy.pt
-
-where
-- loss should have a file under config/loss that specifies the trainer in trainers.py and dataloader in dataloader.py
-- model should have a file under config/model
-- datasets is a list of datasets, each of which has a get_{name} function in dataloader.py
-- exp_name is the experiment name (on WANDB); model will be saved to the cache_dir/exp_name
-- model.load_from should be used for aligning a model that has already been finetuned
-
-Remember to allocate enough RAM before running this (you need aroundd 800 GB for Llama-13B).
-"""
 import torch
 torch.backends.cuda.matmul.allow_tf32 = True
 import torch.nn as nn
