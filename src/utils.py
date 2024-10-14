@@ -176,7 +176,6 @@ def tdpo_kl_get_batch_logps(
     temperature: float = 1,
     k: int = 50,
     use_mse: bool = False,
-    simpo: bool = False,
 ):
     """Compute the kl divergence/log probabilities of the given labels under the given logits.
 
@@ -189,17 +188,13 @@ def tdpo_kl_get_batch_logps(
     Returns:
         Several tensors of shape (batch_size,) containing the average/sum kl divergence/log probabilities of the given labels under the given logits.
     """
+
     assert logits.shape[:-1] == labels.shape
     assert reference_logits.shape[:-1] == labels.shape
 
     labels = labels[:, 1:].clone()
     logits = logits[:, :-1, :]
-    if pi_fm is not None:
-        pi_fm = pi_fm[:, :-1, :]
-        ref_fm = ref_fm[:, :-1, :]
-
     reference_logits = reference_logits[:, :-1, :]
-
     loss_mask = (labels != -100)
 
     # dummy token; we'll ignore the losses on these tokens later
@@ -210,13 +205,15 @@ def tdpo_kl_get_batch_logps(
     reference_vocab_ps = reference_logits.softmax(-1)
     reference_vocab_logps = reference_vocab_ps.log()
 
-    if pi_fm is not None:
-        per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
-    else:
-        per_position_kl = torch.zeros_like(labels).sum(-1)
-    per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
-    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_position_kl = (reference_vocab_ps * (reference_vocab_logps - vocab_logps)).sum(-1)
+    per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2) * loss_mask
+    per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2) * loss_mask
+    logps_margin = (per_token_logps).sum(-1) / loss_mask.sum(-1) - (per_reference_token_logps).sum(-1) / loss_mask.sum(-1)
 
+    if pi_fm is not None:
+        pi_fm = pi_fm[:, :-1, :]
+        ref_fm = ref_fm[:, :-1, :]
+    
     if pi_fm is not None:
         ref_fm = (ref_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
         pi_fm = (pi_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
@@ -232,20 +229,15 @@ def tdpo_kl_get_batch_logps(
     else:
         fm_kl = torch.zeros_like(per_position_kl).sum(-1)
 
- 
-    logps_margin = (per_token_logps * loss_mask).sum(-1)
-    if not simpo: 
-        logps_margin = logps_margin - (per_reference_token_logps  * loss_mask).sum(-1)
 
     if average_log_prob:
         return (logps_margin * loss_mask).sum(-1) / loss_mask.sum(-1), \
-               (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1), \
-               (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
+               (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1),
     else:
         return logps_margin, \
             (per_position_kl * loss_mask).sum(-1), \
-            (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1), \
             fm_kl
+            
 
 def fdpo_kl_get_batch_logps(
     logits: torch.FloatTensor, 

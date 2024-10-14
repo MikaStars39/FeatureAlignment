@@ -1,6 +1,0 @@
-defaults:
-  - base_model
-
-name_or_path: /data/models/Qwen2-1.5B
-block_name: Qwen2DecoderLayer
-use_flash_attention: true

@@ -28,22 +28,21 @@ import os
 import hydra
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf, DictConfig
-import trainers
 import wandb
 import json
 import socket
 from typing import Optional, Set
 import resource
-from models import AutoModelForCausalLMWithValueHead
+from src.models import AutoModelForCausalLMWithValueHead
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
 import torch.distributed as dist
 import numpy as np
 import random
-import dataloader
+from src import dataloader, trainers
 import gc
-from utils import delete_dict
+from src.utils import delete_dict
 from huggingface_hub import login
-from feature_map import get_feature_map
+from src.feature_map import get_feature_map
 
 
 def worker_main(
@@ -275,7 +274,7 @@ def main(config: DictConfig):
         mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, tokenizer, train_iterator, eval_iterator, policy, reference_model, sae_encoder.to(policy.device).eval() if config.loss.name == "tdpo-kl" else None), join=True)
     else:
         print('starting single-process worker')
-        worker_main(0, 1, config, tokenizer, train_iterator, eval_iterator, policy, reference_model)
+        worker_main(0, 1, config, tokenizer, train_iterator, eval_iterator, policy, reference_model, sae_encoder.to(policy.device).eval() if config.loss.name == "tdpo-kl" else None)
 
 
 if __name__ == '__main__':
