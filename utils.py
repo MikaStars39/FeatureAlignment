@@ -217,48 +217,17 @@ def tdpo_kl_get_batch_logps(
     per_token_logps = torch.gather(vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
     per_reference_token_logps = torch.gather(reference_vocab_logps, dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
-    # draw ref_fm_ps.mean(dim=1)
-    # import matplotlib.pyplot as plt
-    # import math
-    # flattened = pi_fm.softmax(dim=-1).mean(dim=1).flatten().float().cpu().detach().numpy()
-
-    # # 计算 n 的值，即正方形的维度 n*n
-    # N = flattened.shape[0]
-    # n = int(math.sqrt(N))
-
-    # # 将展平的张量转换为 n x n 形状
-    # square_tensor = flattened[:(n // 1.5)*n*1.5].reshape(n // 1.5, n * 1.5)
-
-    # # 画热力图
-    # plt.figure(figsize=(12, 8))
-    # plt.imshow(square_tensor, cmap='Blues', interpolation='nearest')
-    # plt.colorbar(label='Value')
-
-    # # 设置颜色映射：0 是白色，值越大颜色越蓝
-    # plt.set_cmap('Blues')
-
-    # # 去除坐标轴
-    # plt.axis('off')
-
-    # # 保存热力图为 PDF
-    # plt.savefig('heatmap.pdf', bbox_inches='tight', pad_inches=0)
-    # exit()
-
-    # select the top k elemets in ref_fm amd pi_fm
     if pi_fm is not None:
         ref_fm = (ref_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
         pi_fm = (pi_fm * loss_mask.unsqueeze(-1)).mean(dim=1)
 
+        # # L2 Norm
+        # ref_fm = ref_fm / ref_fm.norm(dim=-1, keepdim=True)
+        # pi_fm = pi_fm / pi_fm.norm(dim=-1, keepdim=True)
+
         pi_fm, indices = torch.topk(pi_fm, k, dim=-1)
         ref_fm = torch.gather(ref_fm, dim=-1, index=indices)
 
-        # ref_fm_ps = (ref_fm / temperature).softmax(-1)
-        # pi_fm_ps = (pi_fm / temperature).softmax(-1)
-        # pi_fm_logps = (pi_fm_ps + 1e-4).log()
-        # ref_fm_logps = (ref_fm_ps  + 1e-4).log()
-
-        # fm_kl = (ref_fm_ps * (ref_fm_logps - pi_fm_logps)).sum(-1) if not use_mse else 
-        # print(ref_fm_ps.shape)
         fm_kl = (ref_fm - pi_fm).pow(2).mean(-1)
     else:
         fm_kl = torch.zeros_like(per_position_kl).sum(-1)
@@ -273,7 +242,7 @@ def tdpo_kl_get_batch_logps(
                (per_position_kl * loss_mask).sum(-1) / loss_mask.sum(-1), \
                (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
     else:
-        return (logps_margin) / loss_mask.sum(-1), \
+        return logps_margin, \
             (per_position_kl * loss_mask).sum(-1), \
             (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1), \
             fm_kl

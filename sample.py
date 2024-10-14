@@ -1,6 +1,7 @@
 import json
 import torch
 import argparse
+import math
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from datasets import load_dataset
@@ -19,6 +20,7 @@ def parse_args():
     parser.add_argument('--max_batches', type=int, default=100, help='Maximum number of batches to process')
     parser.add_argument('--temperature', type=float, default=1, help='Maximum number of batches to process')
     parser.add_argument('--entropy', type=bool, default=False, help='Maximum number of batches to process')
+    parser.add_argument('--fm', type=bool, default=False, help='Maximum number of batches to process')
     return parser.parse_args()
 
 # Batch generate responses
@@ -30,29 +32,57 @@ def generate_responses(model, tokenizer, instructions, template, max_length, tem
     return responses
 
 def get_entropy(model, tokenizer, instructions, template, max_length, temperature):
-    prompts = [template.format(instruction) for instruction in instructions]
+    prompts = instructions 
     inputs = tokenizer(prompts, return_tensors='pt', padding=True, truncation=True).input_ids.to('cuda')
-    logits = model(inputs, return_dict=True).logits
+    logits = model(inputs, return_dict=True).logits.detach()
     probs = torch.nn.functional.softmax(logits, dim=-1)
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
     entropy = -torch.sum(probs * log_probs, dim=-1).mean(dim=-1)
+    del logits, probs, log_probs
     return entropy
 
-@torch.no_grad()
+def get_fm(model, tokenizer, instructions, template, max_length, temperature, sae_encoder):
+    # prompts = [template.format(instruction) for instruction in instructions]
+    inputs = tokenizer(instructions, return_tensors='pt', padding=True, truncation=True).input_ids.to('cuda')
+    hidden_states = model(inputs, return_dict=True, output_hidden_states=True).hidden_states
+    fm = sae_encoder.encode(hidden_states[-1])
+    return fm
+
+@torch.no_grad
 def main():
     # Parse the arguments
     args = parse_args()
+    
 
     # Load model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path)
+    sft_model = AutoModelForCausalLM.from_pretrained(args.model_name_or_path)
     tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
 
     # Load checkpoint
     model.load_state_dict(torch.load(args.checkpoint_path)['state'], strict=False)
+    sft_model.load_state_dict(torch.load("cache/sft-gemma-2-2b/LATEST/policy.pt")['state'], strict=False)
     model = model.to('cuda')
+    sft_model = sft_model.to('cuda')
+
+    if args.fm:
+        # load sae
+        from feature_map import get_feature_map
+        sae_encoder = get_feature_map(
+            model_name_or_path="google/gemma-2-2b-it",
+            sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
+            sae_layer_id=25,
+            temperature=1.0,
+            visualize=True,
+            cache_dir=".cache",
+            release=True,
+        )
+        sae_encoder = sae_encoder.to('cuda')
+        sae_encoder.eval().half()
 
     # Enable half precision (fp16) for faster inference
     model.half()
+    sft_model.half()
 
     # Load dataset from Hugging Face hub
     if "jsonl" in args.dataset_name:
@@ -67,16 +97,31 @@ def main():
 
     # Generate results
     results = []
-    entropy = 0
+    entropys = 0
+    fm = 0
     for i, batch in tqdm(enumerate(dataloader), total=args.max_batches // args.batch_size + 1):
         if i >= (args.max_batches // args.batch_size + 1):
             break
-        instructions = batch['turns'][0]['content']
+        if "arena" in args.dataset_name:
+            instructions = batch['turns'][0]['content']
+        elif "ultrafeedback" in args.dataset_name:
+            instructions = batch['rejected'][0]['content']
+            responeses = batch['rejected'][1]['content']
+            instructions_all = []
+            for instruction, response in zip(instructions, responeses):
+                instructions_all.append(template.format(instruction) + response)
+            instructions = instructions_all
         
         if args.entropy:
             # compute the logit entropy of the model
-            entropy += get_entropy(model, tokenizer, instructions, template, args.max_length, args.temperature)
-            results.append(entropy)
+            entropy = get_entropy(model, tokenizer, instructions, template, args.max_length, args.temperature)
+            entropys += entropy
+        elif args.fm:
+            fm_one = get_fm(model, tokenizer, instructions, template, args.max_length, args.temperature, sae_encoder)
+            fm_sft = get_fm(sft_model, tokenizer, instructions, template, args.max_length, args.temperature, sae_encoder)
+            
+            # calculate mse loss
+            fm += torch.nn.functional.mse_loss(fm_one, fm_sft)
         else:
             responses = generate_responses(model, tokenizer, instructions, template, args.max_length, args.temperature)
             for instruction, response in zip(instructions, responses):
@@ -90,7 +135,25 @@ def main():
                 results.append(result)
 
     if args.entropy:
-        print(f"Average entropy: {entropy.mean(dim=-1) / len(results)}")
+        print(f"Average entropy: {entropys / (args.max_batches // args.batch_size + 1)}")
+    elif args.fm:
+        print(fm)
+        # # draw the feature map
+        # import matplotlib.pyplot as plt
+        # import numpy as np
+        # # fm = fm / (args.max_batches // args.batch_size + 1)
+        # fm = fm.mean(dim=0)
+
+        # # flatten fm as a 2D array
+        # N = math.ceil(math.sqrt(fm.shape[0]))
+        # fm = fm[:N*N].reshape(N, N)
+
+        # fm = fm.cpu().numpy()
+        # fm = np.squeeze(fm)
+        # plt.imshow(fm, cmap='Blues', interpolation='nearest')
+        # plt.savefig("fm_dpo.pdf")
+
+        
     else:
         # Save results to JSON file
         with open(args.output_file, 'w') as f:

@@ -25,12 +25,18 @@ def get_feature_map(
     # dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, num_workers=8)
     
     # login with Hugging Face token
-    login(token="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")
+    login(token="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")
 
     if release:
+        # path_to_params = hf_hub_download(
+        #     repo_id="google/gemma-scope-2b-pt-res",
+        #     filename="layer_25/width_16k/average_l0_55/params.npz",
+        #     force_download=False,
+        # )
+
         path_to_params = hf_hub_download(
-            repo_id="google/gemma-scope-2b-pt-res",
-            filename="layer_25/width_16k/average_l0_55/params.npz",
+            repo_id="google/gemma-scope-9b-pt-res",
+            filename="layer_41/width_16k/average_l0_52/params.npz",
             force_download=False,
         )
 

@@ -46,7 +46,9 @@ from huggingface_hub import login
 from feature_map import get_feature_map
 
 
-def worker_main(rank: int, world_size: int, config: DictConfig, tokenizer: AutoTokenizer, train_iterator: dataloader.DataLoader, eval_iterator: dataloader.DataLoader, policy: nn.Module, reference_model: Optional[nn.Module] = None):
+def worker_main(
+    rank: int, 
+    world_size: int, config: DictConfig, tokenizer: AutoTokenizer, train_iterator: dataloader.DataLoader, eval_iterator: dataloader.DataLoader, policy: nn.Module, reference_model: Optional[nn.Module] = None, sae_encoder: Optional[nn.Module] = None):
     """Main function for each worker process (may be only 1 for BasicTrainer)."""
     if config.use_fsdp:
         init_distributed(rank, world_size, port=config.fsdp_port)
@@ -78,6 +80,7 @@ def worker_main(rank: int, world_size: int, config: DictConfig, tokenizer: AutoT
         rank=rank, 
         world_size=world_size, 
         fsdp=config.use_fsdp,
+        sae_encoder=sae_encoder
     )
 
     trainer.train()
@@ -98,7 +101,7 @@ def main(config: DictConfig):
     print("Making experiment directory", config.local_run_dir)
 
     # login with Hugging Face token
-    login(token="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")
+    login(token="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", add_to_git_credential=True)
     
     set_seed(config.seed)
 
@@ -215,11 +218,6 @@ def main(config: DictConfig):
         # chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
 
         # import sae encoder
-        policy.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
-        print("SAE encoder registered into the policy")
-        
-        reference_model.model.layers[config.model.sae_layer_id].set_encoder(sae_encoder)
-        print("SAE encoder registered into the reference model")
         # load .cache/fm.pt into policy.fm
         # policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
         # policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
@@ -228,8 +226,6 @@ def main(config: DictConfig):
         # init a fm in policy
 
             # check if policy.model.layers[config.model.sae_layer_id].sae_encoder does not have any learnable parameters
-        for param in policy.model.layers[config.model.sae_layer_id].sae_encoder.parameters():
-            param.requires_grad = False
             
 
     print(f"{num_added} special tokens added")
@@ -276,7 +272,7 @@ def main(config: DictConfig):
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
         print(f'setting RLIMIT_NOFILE soft limit to {hard} from {soft}')
-        mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, tokenizer, train_iterator, eval_iterator, policy, reference_model), join=True)
+        mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, tokenizer, train_iterator, eval_iterator, policy, reference_model, sae_encoder.to(policy.device).eval() if config.loss.name == "tdpo-kl" else None), join=True)
     else:
         print('starting single-process worker')
         worker_main(0, 1, config, tokenizer, train_iterator, eval_iterator, policy, reference_model)

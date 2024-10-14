@@ -3,18 +3,19 @@
 # CUDA_VISIBLE_DEVICES=4,5,6,7 python3 train.py loss=tdpo-kl model=gemma-2-2b datasets='[ultrabin]' exp_name=tdpo-kl-gemma-2-2b-dpo mode=train debug=false model.batch_size=1 model.eval_batch_size=1 model.gradient_accumulation_steps=32 model.use_flash_attention=true lr=5e-7 optimizer=AdamW ++model.load_from=sft-gemma-2-2b/LATEST/policy.pt
 # mamba activate qy
 # cd hongwei/qy_workspace/emo-dit-qy/emo-fsdp
-export XDG_CACHE_HOME=/mnt/weka/qy/cache/hf
-CUDA_VISIBLE_DEVICES=6 python3 sample.py \
+export XDG_CACHE_HOME=cache/hf
+CUDA_VISIBLE_DEVICES=5 python3 sample.py \
     --model_name_or_path google/gemma-2-2b \
-    --checkpoint_path /mnt/weka/qy/cache/tdpo-kl-005/LATEST/policy.pt \
-    --dataset_name arena_questions.jsonl \
-    --split train \
-    --batch_size 4 \
+    --checkpoint_path cache/dpo-gemma-2-2b-beta10/LATEST/policy.pt \
+    --dataset_name HuggingFaceH4/ultrafeedback_binarized \
+    --split test_prefs \
+    --batch_size 1 \
     --max_length 2000 \
     --output_file samples/sft-06.json \
-    --max_batches 100 \
+    --max_batches 32 \
     --temperature 1 \
-    --entropy true
+    --entropy true \
+    # --fm true \
 
 # CUDA_VISIBLE_DEVICES=7 python3 sample.py \
 #     --model_name_or_path google/gemma-2-2b \

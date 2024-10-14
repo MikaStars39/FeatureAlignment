@@ -79,6 +79,7 @@ class BasicTrainer(object):
                  rank: int = 0, 
                  world_size: int = 1, 
                  fsdp: bool = False,
+                 sae_encoder: Optional[nn.Module] = None
                  ):
         """A trainer for a language model, supporting either SFT, HALO, or offline PPO training.
         """
@@ -110,6 +111,7 @@ class BasicTrainer(object):
             self.shard()
 
         self.is_mistral = 'mistral' in self.config.model.name_or_path.lower()
+        self.sae_encoder = sae_encoder
         
     def shard(self):
         """
@@ -350,6 +352,9 @@ class BasicTrainer(object):
         last_log = None
         gradients_accumulated = 0
         batch_metrics = defaultdict(list)
+
+        if self.sae_encoder is not None:
+            self.sae_encoder.to(self.policy.device).to(self.policy.dtype)
 
         for batch in self.train_iterator:
             # EVALUATION
@@ -1065,7 +1070,6 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         #     logits = chosen_rejected_logps_margin - alpha * (rejected_position_kl - chosen_position_kl.detach())  # tdpo2
         alpha = self.config.loss.alpha
         beta = self.config.loss.beta
-        gamma = self.config.loss.gamma
         gammas = alpha*(rejected_position_kl - chosen_position_kl.detach())
         logits = beta * (chosen_rejected_logps_margin - gammas) 
         losses = -F.logsigmoid(logits)
@@ -1079,14 +1083,27 @@ class TDPOKLTrainer(PairedPreferenceTrainer):
         """Run the given model on the given batch of inputs, concatenating the chosen and rejected inputs together.
         """
         concatenated_batch = self.concatenated_inputs(batch)
-        outputs = model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral))
+        outputs = model(
+            concatenated_batch['concatenated_combined_input_ids'], 
+            attention_mask=concatenated_batch['concatenated_combined_attention_mask'], 
+            use_cache=(not self.is_mistral),
+            output_hidden_states=True,
+        )
         all_logits = outputs.logits.to(self.policy_dtype)
-        all_fm = outputs.feature_acts.to(self.policy_dtype)
+        all_fm = outputs.hidden_states[-1].to(self.policy_dtype)
+        all_fm = self.sae_encoder.encode(all_fm)
+        
 
         with torch.no_grad():
-            reference_outputs = self.reference_model(concatenated_batch['concatenated_combined_input_ids'], attention_mask=concatenated_batch['concatenated_combined_attention_mask'], use_cache=(not self.is_mistral))
+            reference_outputs = self.reference_model(
+                concatenated_batch['concatenated_combined_input_ids'], 
+                attention_mask=concatenated_batch['concatenated_combined_attention_mask'], 
+                use_cache=(not self.is_mistral),
+                output_hidden_states=True,
+            )
             reference_all_logits = reference_outputs.logits.to(self.policy_dtype)
-            reference_all_fm = reference_outputs.feature_acts.to(self.policy_dtype)
+            reference_all_fm = reference_outputs.hidden_states[-1].to(self.policy_dtype)
+            reference_all_fm = self.sae_encoder.encode(reference_all_fm)
 
         # reference_chosen_fm = model.chosen_fm.to(self.policy_dtype).unsqueeze(0).unsqueeze(0)
         # reference_chosen_fm = reference_chosen_fm.repeat(batch['chosen_input_ids'].shape[0], reference_all_fm.shape[1], 1)

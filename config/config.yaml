@@ -14,10 +14,10 @@ mode: ???
 debug: false
 
 # whether to use FSDP
-use_fsdp: false
+use_fsdp: true
 
 # the port to use for FSDP
-fsdp_port: null
+fsdp_port: 29010
 
 # wandb configuration
 wandb:
@@ -63,7 +63,7 @@ n_epochs: 1
 n_examples: null
 
 # The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
-optimizer: RMSprop
+optimizer: Adam
 
 # number of linear warmup steps for the learning rate
 warmup_steps: 150
