@@ -47,12 +47,12 @@ def get_custom_dataset(split: str, ...):
 
 ### 3. 🧑‍💻 Creating a Custom Trainer
 
-It's time to customize your trainer! 🎯 Here's a simple example based on KTO (Kahneman-Tversky Optimization):
+It's time to customize your trainer! 🎯 Here's a simple example based on our FPO:
 
 ```python
-class CustomKTOTrainer(UnpairedPreferenceTrainer):
+class CustomFPOTrainer(UnpairedPreferenceTrainer):
     def loss(self, chosen_logps, rejected_logps, ref_chosen_logps, ref_rejected_logps):
-        # Define the KTO loss here
+        # Define your own loss here
         return loss
 ```
 
@@ -65,7 +65,7 @@ Want more flexibility? Extend this for your own **Human-Aware Loss Functions (HA
 Train your model on datasets like SHP, HH, or OpenAssistant with one simple command:
 
 ```bash
-python train.py loss=kto model=llama7b datasets=[shp,hh,oasst] exp_name=my_experiment mode=train ++cache_dir=/data/models
+python train.py loss=fpo model=gemma-2-2b datasets=[shp,hh,oasst] exp_name=my_experiment mode=train ++cache_dir=/data/models
 ```
 
 Your model will be saved to `/data/models/my_experiment/LATEST/policy.pt` 🎯.
