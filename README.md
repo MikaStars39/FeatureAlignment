@@ -2,11 +2,12 @@
 
 # FeatureAlignment 
 
+</div>
+
 $$
 \text{FeatureAlignment} = \text{Alignment} (\text{e.g. DPO}) + \text{Mechanistic Interpretability} (\text{e.g. SAE})
 $$
 
-</div>
 FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
 
 ## 🎯 Key Highlights
