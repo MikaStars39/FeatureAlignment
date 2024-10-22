@@ -20,7 +20,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 import transformers
 import gc
-from models import AutoModelForCausalLMWithValueHead
+from .models import AutoModelForCausalLMWithValueHead
 from omegaconf import OmegaConf, DictConfig
 from transformers import AutoTokenizer
 
@@ -37,8 +37,8 @@ from torch.distributed.fsdp.api import FullStateDictConfig, FullOptimStateDictCo
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy, size_based_auto_wrap_policy
 import contextlib
 
-import dataloader
-from utils import (
+import src.dataloader as dataloader
+from .utils import (
     slice_and_move_batch_for_device,
     formatted_dict,
     all_gather_if_needed,

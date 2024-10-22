@@ -23,7 +23,7 @@ Remember to allocate enough RAM before running this (you need aroundd 800 GB for
 import torch
 torch.backends.cuda.matmul.allow_tf32 = True
 import torch.nn as nn
-from utils import disable_dropout, init_distributed, get_open_port
+from src.utils import disable_dropout, init_distributed, get_open_port
 import os
 import hydra
 import torch.multiprocessing as mp

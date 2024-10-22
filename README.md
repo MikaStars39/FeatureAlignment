@@ -1,19 +1,23 @@
-# Feature-Level Direct Preference Optimization with Sparse Constraints
+<div align="center">
 
-This repository introduces **Feature-Level Direct Preference Optimization (FPO)** using sparse feature-level constraints for aligning Large Language Models (LLMs) with human feedback. FPO builds upon Direct Preference Optimization (DPO) and introduces feature-level constraints through Sparse Autoencoders (SAEs) to improve efficiency and stability in the alignment process. 
+# FeatureAlignment 
 
-We focus on aligning models using pre-trained **Sparse Autoencoders (SAEs)** to enhance performance without overwhelming computational costs. If you're looking for an approach that's more aligned with human judgment, you've come to the right place! 😉
+$$
+\text{FeatureAlignment} = \text{Alignment} (\text{e.g. DPO}) + \text{Mechanistic Interpretability} (\text{e.g. SAE})
+$$
 
-This repository is built based on HALOS [paper](https://arxiv.org/abs/2402.01306). This repository also draws inspiration from the original [DPO repo](https://github.com/eric-mitchell/direct-preference-optimization) and preserves key design elements while adding new functionalities.
+</div>
+FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
 
 ## 🎯 Key Highlights
-- Modular data loading and trainers for flexible loss function design 🎛️
-- 🆕 **Support for advanced optimization methods**, including KTO and PPO, beyond standard DPO.
-- Efficient evaluation using **GPT-4** as a judge 🧑‍⚖️.
+- Compatible with [Transformer Lens](https://github.com/TransformerLensOrg/TransformerLens), [SAE Lens](https://github.com/jbloomAus/SAELens) and [Transformers](https://github.com/huggingface/transformers).
+- Support multiple alignment methods e.g. DPO, SimPO, TDPO, ORPO.
+- Pytorch Lightning + Hydra for easy training.
+- Template for customizing alignment methods.
+
+
 
 ## ⚡ Quick Start
-
-Ready to jump in? Here's how you get started:
 
 ### 1. 📦 Setting Up the Environment
 
