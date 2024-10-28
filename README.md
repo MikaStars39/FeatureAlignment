@@ -13,7 +13,7 @@ FeatureAlignment is a tool designed to enhance the alignment of large language m
 ## 🎯 Key Highlights
 - Compatible with [Transformer Lens](https://github.com/TransformerLensOrg/TransformerLens), [SAE Lens](https://github.com/jbloomAus/SAELens) and [Transformers](https://github.com/huggingface/transformers).
 - Support multiple alignment methods e.g. DPO, SimPO, TDPO, ORPO.
-- Pytorch Lightning + Hydra for easy training.
+- Pytorch Lightning + Hydra + WandB / Neupton for easy training.
 - Template for customizing alignment methods.
 
 
@@ -52,12 +52,11 @@ def get_custom_dataset(split: str, ...):
 
 ### 3. 🧑‍💻 Creating a Custom Trainer
 
-It's time to customize your trainer! 🎯 Here's a simple example based on KTO (Kahneman-Tversky Optimization):
+It's time to customize your trainer! 🎯 Here's a simple example
 
 ```python
-class CustomKTOTrainer(UnpairedPreferenceTrainer):
+class CustomTrainer(UnpairedPreferenceTrainer):
     def loss(self, chosen_logps, rejected_logps, ref_chosen_logps, ref_rejected_logps):
-        # Define the KTO loss here
         return loss
 ```
 

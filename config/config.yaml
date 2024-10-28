@@ -1,117 +1,102 @@
-# random seed
-seed: 39
-
-# name for this experiment in the local run directory and on wandb
-exp_name: feature-level-dpo
-
-# datasets should be specified
-datasets: ???
-
-# mode: one of 'train', 'eval', or 'sample'
-mode: ???
-
-# debug mode (disables wandb, model checkpointing, etc.)
-debug: false
-
-# whether to use FSDP
-use_fsdp: false
-
-# the port to use for FSDP
-fsdp_port: null
-
-# wandb configuration
-wandb:
-  enabled: true
-  entity: null
-  project: "feature-level-dpo"
-
-# where trained models will be saved
-# use HF environmental variables to control where the datasets, pretrained Huggingface models, etc. are saved 
-# relevant HF env variables are TRANSFORMERS_CACHE, HF_DATASETS_CACHE, HF_MODULES_CACHE, HF_METRICS_CACHE
+debug: true
+seed: 39 # random seed
+exp_name: 3df-s1-1015 # name for this experiment in the local run directory and on wandb
+mode: predict # mode: one of 'train', 'eval', or 'sample'
+stage: 1 # the stage of training to start from
+n_epochs: null # the number of epochs to train for; if null, must specify n_examples
 cache_dir: cache 
+ckpt_dir: outputs/ckpt
+resume_ckpt: null # the path to a checkpoint to resume training from
+# resume_ckpt: outputs/ckpt/3df-s1-1015/epoch=5-step=3850.ckpt # the path to a checkpoint to resume training from
 
-local_run_dir: ${cache_dir}/${exp_name}
+model:
+  module_name: model_dit.lightning.lightning_model
+  class_name: EmoLitModule
+  hf_model_name_or_path: EleutherAI/gpt-neo-2.7B
+  hf_tokenizer_name: EleutherAI/gpt-neo-2.7B
+  max_length: 1024
+  max_prompt_length: 1024
 
-# whether to eval at the very beginning of training
-do_first_eval: true
+logger:
+    neptune_project: null # null is None, TODO, need to change accordingly
+    neptune_api_token: null # TODO
+    wandb:
+      enabled: true     # wandb configuration
+      entity: null
+      project: "3D-Full-Attention"
 
-# prevent wandb from logging more than once per minimum_log_interval_secs
-minimum_log_interval_secs: 1.0
+# callbacks settings
+callbacks:
+  - module_name: model_dit.utils.callbacks
+    class_name: BasicCallback
+    # config: config
+  - module_name: lightning.pytorch.callbacks
+    class_name: ModelCheckpoint
+    dirpath: ${ckpt_dir}/${exp_name} # where to save the checkpoints
+    every_n_train_steps: 50 # how often to save checkpoints
+    # filename: run_name + '{epoch}-{step}' # the filename for the checkpoints
+    save_top_k: -1 # -1, save all checkpoints
 
-intermediate_checkpoints: false
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  devices: 3
+  precision: bf16
+  enable_checkpointing: true
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  log_every_n_steps: 1
+  val_check_interval: 32 # evaluate the model every eval_every steps
 
-activation_checkpointing: true
+# loss settings
+loss:
+  snr_gamma: 5.0
+  zero_embedding: true
+  uncond_ratio: 0.1
+  noise_offset: 0.05
+  vae_scale: 0.18215
 
-defaults:
-- _self_
-- model: ???
-- loss: ???
+# optimizer settings
+optimizer:
+  lr: 5e-7 # the learning rate
+  warmup_steps: 150 # number of linear warmup steps for the learning rate
+  adam_beta1: 0.9 # beta1 for the Adam optimizer
+  adam_beta2: 0.95 # beta2 for the Adam optimizer
+  adam_epsilon: 1.0e-08 # epsilon for the Adam optimizer
+  enable_xformers_memory_efficient_attention: true # whether to use the memory-efficient implementation of the attention layer
+  gradient_accumulation_steps: 1 # number of steps to accumulate gradients over
+  gradient_checkpointing: false # whether to use gradient checkpointing
+  lr_scheduler: constant # the learning rate scheduler
+  lr_warmup_steps: 1 # the number of warmup steps for the learning rate
+  max_grad_norm: 1.0 # the maximum gradient norm
+  max_train_steps: 300000 # the maximum number of training steps
+  max_epochs: 1e9 # set a maximum number of epochs to train for
+  mixed_precision: bf16 # the mixed precision mode
+  scale_lr: false # whether to scale the learning rate
+  weight_decay: 0.0001 # the weight decay
+  use_8bit_adam: false # whether to use 8-bit Adam
 
-# the trainer class to use (e.g. BasicTrainer, FSDPTrainer, TensorParallelTrainer); should be specfied by the loss config
-trainer: BasicTrainer
+# validation:
+#   num_steps: 20
+#   frequency: 250
+#   input_list:
+#     - /home/mustafa/data/celeba_hq_256/00000.jpg
+#     - /home/mustafa/data/celeba_hq_256/00001.jpg
 
+data:
+  test_bs: 1 # 50GB/80GB
+  train_bs: 16 # micro-batch size i.e. on one GPU
+  shuffle: true # if need to shuffle the data
+  num_workers: 8 # number of workers for data loading
+  human_prefix: "\n<|user|>\n"
+  assistant_prefix: "\n<|assistant|>\n"
+  human_suffix: ""
+  assistant_suffix: ""
+  frac_unique_desirable: 1.0
+  frac_unique_undesirable: 1.0 # for imbalance study
 
-## TRAINING SETTINGS
+inference:
+  output_dir: outputs/inference
+  num_inference_steps: 20
+  classifier_free_guidance: false
 
-# the learning rate
-lr: 5e-7
-
-# the number of epochs to train for; if null, must specify n_examples
-n_epochs: 1
-
-# the number of examples to train for; if null, must specify n_epochs
-n_examples: null
-
-# The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
-optimizer: RMSprop
-
-# number of linear warmup steps for the learning rate
-warmup_steps: 150
-
-# evaluate and save model every eval_every steps
-eval_every: 2000
-
-
-### EVALUATION SETTINGS
-
-# how many model samples to generate during sampling
-n_samples: 128
-
-# where to dump samples
-samples_dir: "samples/"
-
-# the number of examples to evaluate on (leave as null to evaluate on all of them)
-n_eval_examples: 128
-
-# where the aligned policy model is stored
-saved_policy: null
-
-# top p choice for sampling
-top_p: 0.95
-
-
-### DATALOADER SETTINGS
-
-# label to use for the human turns in chat datasets (should NOT end in space)
-# NOTE: use double-quotes to express arbitrary strings, not single quotes
-human_prefix: "\n<|user|>\n"
-
-# label to use for the assistant turns in chat datasets (should NOT end in space)
-# NOTE: use double-quotes to express arbitrary strings, not single quotes
-assistant_prefix: "\n<|assistant|>\n"
-
-# used to mark end of human turn (empty by default)
-# NOTE: use double-quotes to express arbitrary strings, not single quotes
-human_suffix: ""
-
-# use to mark end of assistant turn (empty by default)
-# NOTE: use double-quotes to express arbitrary strings, not single quotes
-assistant_suffix: ""
-
-# what fraction of undesirable generations should be kept
-# e.g., if this is 0.8, then a randoom 20% of the undesirable examples (x, y_undesirable) should be thrown away
-# this is to study the effect of an imbalanced dataset while only working with data that comes in paired preference form
-frac_unique_desirable: 1.0
-
-# what fraction of desirable generations should be kept
-frac_unique_undesirable: 1.0

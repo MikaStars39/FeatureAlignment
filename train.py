@@ -1,8 +1,3 @@
-# Copyright (c) 2023 Contextual AI, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
 """
 Main script for training.
 
@@ -20,232 +15,85 @@ where
 
 Remember to allocate enough RAM before running this (you need aroundd 800 GB for Llama-13B).
 """
-import torch
-torch.backends.cuda.matmul.allow_tf32 = True
-import torch.nn as nn
-from src.utils import disable_dropout, init_distributed, get_open_port
-import os
-import hydra
-import torch.multiprocessing as mp
-from omegaconf import OmegaConf, DictConfig
-import wandb
-import json
-import socket
-from typing import Optional, Set
-import resource
-from src.models import AutoModelForCausalLMWithValueHead
-from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
-import torch.distributed as dist
-import numpy as np
-import random
-from src import dataloader, trainers
-import gc
-from src.utils import delete_dict
-from huggingface_hub import login
-from src.feature_map import get_feature_map
+import fire
+from lightning import Trainer, seed_everything
+from lightning.pytorch.utilities import rank_zero_info
+from omegaconf import DictConfig, OmegaConf
+from transformers import AutoTokenizer
+from feature_alignment.utils.util import instantiate
 
 
-def worker_main(
-    rank: int, 
-    world_size: int, config: DictConfig, tokenizer: AutoTokenizer, train_iterator: dataloader.DataLoader, eval_iterator: dataloader.DataLoader, policy: nn.Module, reference_model: Optional[nn.Module] = None, sae_encoder: Optional[nn.Module] = None):
-    """Main function for each worker process (may be only 1 for BasicTrainer)."""
-    if config.use_fsdp:
-        init_distributed(rank, world_size, port=config.fsdp_port)
-    
-    if config.debug:
-        wandb.init = lambda *args, **kwargs: None
-        wandb.log = lambda *args, **kwargs: None
-
-    if rank == 0 and config.wandb.enabled:
-        os.environ['WANDB_CACHE_DIR'] = config.cache_dir
-        wandb.init(
-            entity=config.wandb.entity,
-            project=config.wandb.project,
-            config=OmegaConf.to_container(config),
-            dir=config.cache_dir,
-            name=config.exp_name,
-        )
-
-    TrainerClass = getattr(trainers, config.loss.trainer)
-    print(f'Creating trainer on process {rank} with world size {world_size}')
-
-    trainer = TrainerClass(
-        tokenizer, 
-        config, 
-        train_iterator, 
-        eval_iterator, 
-        policy, 
-        reference_model=reference_model, 
-        rank=rank, 
-        world_size=world_size, 
-        fsdp=config.use_fsdp,
-        sae_encoder=sae_encoder
-    )
-
-    trainer.train()
-    trainer.save()
-    
-
-@hydra.main(version_base=None, config_path="config", config_name="config")
 def main(config: DictConfig):
     """Main entry point for training. Validates config, creates/initializes model(s), and kicks off worker process(es)."""
-    # Resolve hydra references, e.g. so we don't re-compute the run directory
-    OmegaConf.resolve(config)
 
-    missing_keys: Set[str] = OmegaConf.missing_keys(config)
+    # ----------- check missing key in config -----------
+    missing_keys = OmegaConf.missing_keys(config)
     if missing_keys:
         raise ValueError(f"Got missing keys in config:\n{missing_keys}")
 
-    os.makedirs(config.local_run_dir, exist_ok=True)
-    print("Making experiment directory", config.local_run_dir)
+    # ----------------- seed everything -----------------
+    seed_everything(config.seed)
 
-    # login with Hugging Face token
-    login(token="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", add_to_git_credential=True)
+    # ----------------- load callbacks ------------------
+    rank_zero_info(f"Loading callbacks from {config.callbacks}")
+    callbacks = [instantiate(cb) for cb in config.callbacks]
+
+    # # ------------------- load logger -------------------
+    # if config.debug == False:
+    #     if hasattr(config.logger, "neptune_api_token") and config.logger.neptune_api_token is not None:
+    #         from lightning.pytorch.loggers import NeptuneLogger
+
+    #         logger = NeptuneLogger(
+    #             api_key=config.logger.neptune_api_token,
+    #             project=config.logger.neptune_project,
+    #         )
+    #     else:
+    #         from lightning.pytorch.loggers import WandbLogger
+
+    #         logger = WandbLogger(
+    #             project=config.logger.wandb.project,
+    #             name=config.exp_name,
+    #         )
+    #         logger.log_hyperparams(config)
+    # else:
+    #     logger = None
+
+    # # ----------------- load trainer -------------------
+    # rank_zero_info(f"Loading trainer from {config.trainer}")
+    # trainer = Trainer(**config.trainer, callbacks=callbacks, logger=logger)
+
+    # # ----------------- load model ---------------------
+    # module = instantiate(config.model, instantiate_module=False)
+    # rank_zero_info(f"Loading model from {config.model.module_name}.{config.model.class_name}")
+    # if config.resume_ckpt is not None:
+    #     model = module.load_from_checkpoint(config.resume_ckpt)
+    # else:
+    #     model = module(config=config)
     
-    set_seed(config.seed)
+    # # ----------------- load tokenizer -----------------
+    # rank_zero_info(f'Loading tokenizer {config.model.tokenizer_name_or_path}')
+    # tokenizer = AutoTokenizer.from_pretrained(config.model.tokenizer_name_or_path)
+    # if tokenizer.pad_token_id is None:
+    #     tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    if config.eval_every % config.model.batch_size != 0:
-        print('WARNING: eval_every must be divisible by batch_size')
-        print('Setting eval_every to', config.eval_every - config.eval_every % config.model.batch_size)
-        config.eval_every = config.eval_every - config.eval_every % config.model.batch_size
-
-    if config.use_fsdp and config.fsdp_port is None:
-        free_port = get_open_port()
-        print('no FSDP port specified; using open port for FSDP:', free_port)
-        config.fsdp_port = free_port
-
-    if config.saved_policy is None:
-        config.saved_policy = f"{config.local_run_dir}/LATEST/policy.pt"
-
-    print(OmegaConf.to_yaml(config))
-
-    config_path = os.path.join(config.local_run_dir, 'config.yaml')
-    with open(config_path, 'w') as f:
-        OmegaConf.save(config, f)
-
-    print('=' * 80)
-    print(f'Writing to {socket.gethostname()}:{config.local_run_dir}')
-    print('=' * 80)
-    
-    policy_kwargs = {'torch_dtype' : getattr(torch, config.model.policy_dtype)}
-    reference_kwargs = {'torch_dtype' : getattr(torch, config.model.reference_dtype)}
-    
-    if not config.use_fsdp:
-        policy_kwargs['device_map'] = 'balanced'
-        reference_kwargs['device_map'] = 'balanced'
-
-    print('building policy')
-    model_class = AutoModelForCausalLMWithValueHead if config.loss.name == 'ppo' else AutoModelForCausalLM
-
-    if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
-        from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
-        policy = Gemma2ForCausalLM.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
-    else:
-        policy = model_class.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
-    disable_dropout(policy)
-
-    if config.loss.use_reference_model:
-        print('building reference model')
-        if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
-            from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
-            reference_model = Gemma2ForCausalLM.from_pretrained(
-                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
-        else:
-            reference_model = AutoModelForCausalLM.from_pretrained(
-                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
-        disable_dropout(reference_model)
-    else:
-        reference_model = None
-
-    if config.model.load_from is not None:
-        state_dict = torch.load(os.path.join(config.cache_dir, config.model.load_from), map_location='cpu')
-        step, metrics = state_dict['step_idx'], state_dict['metrics']
-        print(f'loading pre-trained weights at step {step} from {config.model.load_from} with metrics {json.dumps(metrics, indent=2)}')
-
-        if config.loss.name == 'ppo':
-            policy.pretrained_model.load_state_dict(state_dict['state'])
-            if config.loss.use_reference_model:
-                reference_model.load_state_dict(state_dict['state'])
-        else:
-            policy.load_state_dict(state_dict['state'])
-            if config.loss.use_reference_model:
-                reference_model.load_state_dict(state_dict['state'])
-
-        delete_dict(state_dict)
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        print('loaded pre-trained weights')
-    
-
-    tokenizer_name_or_path = config.model.tokenizer_name_or_path or config.model.name_or_path
-    print(f'Loading tokenizer {tokenizer_name_or_path}')
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id
-
-    # add special tokens
-    special_tokens = [ config.loss.chosen_control_token, config.loss.rejected_control_token ] if config.loss.name == 'csft' else []
-    num_added = tokenizer.add_special_tokens({ "additional_special_tokens" : special_tokens })
-    if special_tokens != []:
-        if config.loss.name == 'ppo':
-            # for PPO, policy and reference must tokenize the same way
-            policy.pretrained_model.resize_token_embeddings(len(tokenizer))
-            reference_model.resize_token_embeddings(len(tokenizer))
-        else:
-            policy.resize_token_embeddings(len(tokenizer))
-    
-    if config.loss.name == "tdpo-kl":
-        sae_encoder = get_feature_map(
-            model_name_or_path="google/gemma-2-2b-it",
-            sae_encoder_name_or_path="google/gemma-scope-2b-pt-res",
-            sae_layer_id=12,
-            temperature=1.0,
-            visualize=True,
-            cache_dir=".cache",
-            release=True,
-        )
-
-        # # register chosen feature map into the policy
-        # policy.register_buffer("chosen_fm", chosen_fm)
-        # print("Feature map registered into the policy")
-        # reference_model.register_buffer("chosen_fm", chosen_fm)
-        # print("Feature map registered into the reference model")
-        
-        # chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
-
-        # import sae encoder
-        # load .cache/fm.pt into policy.fm
-        # policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
-        # policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
-        # print("Feature map loaded into the policy")
-
-        # init a fm in policy
-
-            # check if policy.model.layers[config.model.sae_layer_id].sae_encoder does not have any learnable parameters
-            
-
-    print(f"{num_added} special tokens added")
-
-    data_loader_class = getattr(dataloader, config.loss.dataloader)
+    # ----------------- load data -----------------------
+    rank_zero_info("Loading data")
     data_iterator_kwargs = dict(
         max_length=config.model.max_length,
         max_prompt_length=config.model.max_prompt_length,
-        human_prefix=config.human_prefix,
-        human_suffix=config.human_suffix,
-        assistant_prefix=config.assistant_prefix,
-        assistant_suffix=config.assistant_suffix,
+        human_prefix=config.data.human_prefix,
+        human_suffix=config.data.human_suffix,
+        assistant_prefix=config.data.assistant_prefix,
+        assistant_suffix=config.data.assistant_suffix,
         seed=config.seed,
-        frac_unique_desirable=config.frac_unique_desirable,
-        frac_unique_undesirable=config.frac_unique_undesirable,
+        frac_unique_desirable=config.data.frac_unique_desirable,
+        frac_unique_undesirable=config.data.frac_unique_undesirable,
         # control tokens taken from Korbak et al.'s (2023) "Pretraining Models with Human Feedback"
         # SFTDataLoader will use them for sampling; ConditionalSFTDataLoader for training
         chosen_control_token=(config.loss.chosen_control_token if config.loss.name == "csft" else None),
         rejected_control_token=(config.loss.rejected_control_token if config.loss.name == "csft" else None),
     )
-
+    data_loader_class = instantiate(config.dataloader, instantiate_module=False)
     train_iterator = data_loader_class(
         config.datasets, 
         tokenizer,
@@ -265,17 +113,14 @@ def main(config: DictConfig):
         **data_iterator_kwargs
     )
     
-    if config.use_fsdp:
-        world_size = torch.cuda.device_count()
-        print('starting', world_size, 'processes for FSDP training')
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
-        print(f'setting RLIMIT_NOFILE soft limit to {hard} from {soft}')
-        mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, tokenizer, train_iterator, eval_iterator, policy, reference_model, sae_encoder.to(policy.device).eval() if config.loss.name == "tdpo-kl" else None), join=True)
-    else:
-        print('starting single-process worker')
-        worker_main(0, 1, config, tokenizer, train_iterator, eval_iterator, policy, reference_model, sae_encoder.to(policy.device).eval() if config.loss.name == "tdpo-kl" else None)
+    # ----------------- train model ---------------------
+    trainer.fit(model, train_iterator, eval_iterator)
 
 
-if __name__ == '__main__':
-    main()
+def run(config="./configs/config.yaml"):
+    config = OmegaConf.load(config)
+    main(config)
+
+
+if __name__ == "__main__":
+    fire.Fire(run)

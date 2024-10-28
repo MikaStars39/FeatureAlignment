@@ -4,76 +4,15 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 import os
-import getpass
 from datetime import datetime
 import torch
-import random
 import numpy as np
 import torch.distributed as dist
 import inspect
 import importlib.util
-import socket
 import os
 from typing import Dict, Union, Type, List
 from collections.abc import Mapping
-
-
-def deepcopy_fsdp_models(src, tgt):
-    """Given two models src and tgt, copy every parameter from the src to the tgt model."""
-    with torch.no_grad():
-        src_params = { k: v for k,v in src.named_parameters() }
-        tgt_params = { k: v for k,v in tgt.named_parameters() }
-
-        for k in tgt_params:
-            if k in src_params:
-                tgt_params[k].data.copy_(src_params[k].data.detach())
-            else:
-                rank0_print(f"{k} not found")
-
-
-def get_open_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0)) # bind to all interfaces and use an OS provided port
-        return s.getsockname()[1] # return only the port number
-
-
-def get_remote_file(remote_path, local_path=None):
-    hostname, path = remote_path.split(':')
-    local_hostname = socket.gethostname()
-    if hostname == local_hostname or hostname == local_hostname[:local_hostname.find('.')]:
-        return path
-    
-    if local_path is None:
-        local_path = path
-    # local_path = local_path.replace('/scr-ssd', '/scr')    
-    if os.path.exists(local_path):
-        return local_path
-    local_dir = os.path.dirname(local_path)
-    os.makedirs(local_dir, exist_ok=True)
-
-    print(f'Copying {hostname}:{path} to {local_path}')
-    os.system(f'scp {remote_path} {local_path}')
-    return local_path
-
-
-def rank0_print(*args, **kwargs):
-    """Print, but only on rank 0."""
-    if not dist.is_initialized() or dist.get_rank() == 0:
-        print(*args, **kwargs)
-
-
-def on_rank0():
-    return (not dist.is_initialized()) or (dist.get_rank() == 0)
-
-
-def slice_and_move_batch_for_device(batch: Dict, rank: int, world_size: int, device: str) -> Dict:
-    """Slice a batch into chunks, and move each chunk to the specified device."""
-    chunk_size = len(list(batch.values())[0]) // world_size
-    start = chunk_size * rank
-    end = chunk_size * (rank + 1)
-    sliced = {k: v[start:end] for k, v in batch.items()}
-    on_device = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in sliced.items()}
-    return on_device
 
 
 def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float], dim: int = -1) -> torch.Tensor:
@@ -85,7 +24,12 @@ def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float
         return torch.cat([tensor, pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device)], dim=dim)
 
 
-def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average_log_prob: bool = False, token_level: bool = False):
+def get_batch_logps(
+    logits: torch.FloatTensor, 
+    labels: torch.LongTensor, 
+    average_log_prob: bool = False, 
+    token_level: bool = False
+) -> torch.FloatTensor:
     """Compute the log probabilities of the given labels under the given logits.
 
     Args:
@@ -115,6 +59,7 @@ def get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, average
         return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
     else:
         return (per_token_logps * loss_mask).sum(-1)
+
 
 def tdpo_get_batch_logps(
     logits: torch.FloatTensor, 

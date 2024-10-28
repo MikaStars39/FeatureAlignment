@@ -37,7 +37,7 @@ from torch.distributed.fsdp.api import FullStateDictConfig, FullOptimStateDictCo
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy, size_based_auto_wrap_policy
 import contextlib
 
-import src.dataloader as dataloader
+import datasets.dataloader as dataloader
 from .utils import (
     slice_and_move_batch_for_device,
     formatted_dict,
@@ -112,83 +112,7 @@ class BasicTrainer(object):
 
         self.is_mistral = 'mistral' in self.config.model.name_or_path.lower()
         self.sae_encoder = sae_encoder
-        
-    def shard(self):
-        """
-        Shard the policy model and reference model (if applicable) using FDSP.
-        """
-        assert self.config.model.block_name is not None, 'must specify model.block_name (e.g., GPT2Block or GPTNeoXLayer) for FSDP'
-        wrap_class = get_block_class_from_model(self.policy.pretrained_model if self.config.loss.name == 'ppo' else self.policy, self.config.model.block_name)
-        model_auto_wrap_policy = functools.partial(transformer_auto_wrap_policy, transformer_layer_cls={wrap_class},)
-
-        shared_fsdp_kwargs = dict(
-            auto_wrap_policy=model_auto_wrap_policy,
-            sharding_strategy=ShardingStrategy.FULL_SHARD,
-            cpu_offload=CPUOffload(offload_params=False),
-            backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
-            device_id=self.rank,
-            ignored_modules=None,
-            limit_all_gathers=False,
-            use_orig_params=False,
-            sync_module_states=False
-        )
-
-        rank0_print('Sharding models...')
-        mp_dtype = getattr(torch, self.config.model.fsdp_policy_mp) if self.config.model.fsdp_policy_mp is not None else None
-        policy_mp_policy = MixedPrecision(param_dtype=mp_dtype, reduce_dtype=mp_dtype, buffer_dtype=mp_dtype)
-
-        if self.config.loss.name == 'ppo':
-            self.policy.pretrained_model = FSDP(self.policy.pretrained_model, **shared_fsdp_kwargs, mixed_precision=policy_mp_policy)
-
-            # shard the value head according to size
-            v_head_shared_fsdp_kwargs = dict(
-                auto_wrap_policy=functools.partial(size_based_auto_wrap_policy, min_num_params=100),
-                sharding_strategy=ShardingStrategy.FULL_SHARD,
-                cpu_offload=CPUOffload(offload_params=False),
-                backward_prefetch=BackwardPrefetch.BACKWARD_PRE,
-                device_id=self.rank,
-                ignored_modules=None,
-                limit_all_gathers=False,
-                use_orig_params=False,
-                sync_module_states=False
-            )
-            self.policy.v_head = FSDP(self.policy.v_head, **v_head_shared_fsdp_kwargs)
-        else:
-            self.policy = FSDP(self.policy, **shared_fsdp_kwargs, mixed_precision=policy_mp_policy)
-
-        if self.reference_model is not None:
-            self.reference_model = FSDP(self.reference_model, **shared_fsdp_kwargs, mixed_precision=policy_mp_policy)
-
-        if self.config.model.activation_checkpointing:
-            rank0_print('Attempting to enable activation checkpointing...')
-            try:
-                # use activation checkpointing, according to:
-                # https://pytorch.org/blog/scaling-multimodal-foundation-models-in-torchmultimodal-with-pytorch-distributed/
-                # first, verify we have FSDP activation support ready by importing:
-                from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import (
-                    checkpoint_wrapper,
-                    apply_activation_checkpointing,
-                    CheckpointImpl,
-                )
-            except Exception as e:
-                rank0_print('FSDP activation checkpointing not available:', e)
-            else:
-                check_fn = lambda submodule: isinstance(submodule, wrap_class)
-                rank0_print('Applying activation checkpointing wrapper to policy...')
-
-                if self.config.loss.name == 'ppo':
-                    apply_activation_checkpointing(self.policy.pretrained_model, checkpoint_wrapper_fn=checkpoint_wrapper, check_fn=check_fn)
-                else:
-                    apply_activation_checkpointing(self.policy, checkpoint_wrapper_fn=checkpoint_wrapper, check_fn=check_fn)
-
-                if self.reference_model is not None:
-                    apply_activation_checkpointing(self.reference_model, checkpoint_wrapper_fn=checkpoint_wrapper, check_fn=check_fn)
-
-                rank0_print('FSDP activation checkpointing enabled!')
-
-        print('Loaded model on rank', self.rank)
-        dist.barrier()
-            
+           
     def get_batch_samples(self, batch: Dict[str, torch.LongTensor]) -> Tuple[str, str]:
         """Generate samples from the policy."""
         ctx = lambda: (FSDP.summon_full_params(self.policy, writeback=False, recurse=False) if self.fsdp else contextlib.nullcontext())
