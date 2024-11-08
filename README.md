@@ -1,19 +1,12 @@
-<div style="display: flex; align-items: center;">
-  <!-- Left column: Image -->
-  <div style="flex: 1; margin-right: 10px; text-align: center;">
-    <img src="assets/89F5EE60-13D9-416B-B395-8774B4350509.webp" alt="Llama Image" style="max-width: 90%; height: auto; border: none;">
-  </div>
 
-  <!-- Right column: Content -->
-  <div style="flex: 2; text-align: left; padding:2 ">
-    <div align="center">
-      <h1 style="margin: 100; padding: 30;">FeatureAlignment</h1>
-    </div>
-    <p>
-      FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
-    </p>
-  </div>
+
+<div align="center">
+  <img src="assets/89F5EE60-13D9-416B-B395-8774B4350509.webp" alt="Llama Image" style="max-width: 200px; height: 200px; border: none;">
+  <h1 style="margin: 100; padding: 30;">FeatureAlignment</h1>
 </div>
+<p>
+  FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
+</p>
 
 $$
 \text{FeatureAlignment} = \text{Alignment} (\text{e.g. DPO}) + \text{Mechanistic Interpretability} (\text{e.g. SAE})
