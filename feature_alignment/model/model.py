@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from typing import Any, Dict, List, Tuple, Union
 from omegaconf import DictConfig
+from ..utils.util import instantiate
 
 class BasicModel(L.LightningModule):
     """
@@ -15,6 +16,10 @@ class BasicModel(L.LightningModule):
 
     def __init__(self, config: DictConfig):
         super().__init__()
+        self.config = config
+        self.is_mistral = False
+        self.policy = None
+        self.configuration()
 
     def on_train_start(self) -> None:
         # Get the rank of the current process after the trainer is attached
@@ -33,7 +38,7 @@ class BasicModel(L.LightningModule):
     # ------ training / testing / validation / inference loop ------
 
     def training_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
-        return self.get_batch_metrics(batch, mode="train")
+        pass
 
     def test_step(self, batch: Dict, batch_idx: int):
         pass
@@ -47,18 +52,42 @@ class BasicModel(L.LightningModule):
     # ------------------- configure everything -------------------
 
     def configure_optimizers(self) -> Dict[str, Any]:
-        """
-        get the optimizer and scheduler
-        docs: https://lightning.ai/docs/pytorch/stable/common/lightning_module.html#configure-optimizers
-        """
-        pass
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.config.optimizer.lr,
+            weight_decay=self.config.optimizer.weight_decay,
+            betas=(self.config.optimizer.adam_beta1, self.config.optimizer.adam_beta2),
+            eps=self.config.optimizer.adam_epsilon,
+        )
+
+        def lr_lambda(current_step):
+            warmup_steps = self.config.optimizer.warmup_steps
+
+            if current_step < warmup_steps:
+                warmup_factor = current_step / warmup_steps
+                return warmup_factor
+            else:
+                return 1
+
+        lr_scheduler = {
+            "scheduler": torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda),
+            "interval": "step",
+            "frequency": 1,
+        }
+
+        return [optimizer], [lr_scheduler]
 
     def configuration(self):
         """
         Our customised configuration, for getting the scheduler, vae, etc.
         NOTICE: must be freezed models
         """
-        pass
+        # precision config 
+        if "bf" in self.config.trainer.precision:
+            self.precision = torch.bfloat16
+        elif "fp16" in self.config.trainer.precision:
+            self.precision = torch.float16
+        else: self.precision = torch.float32
 
     def configure_model(self):
         """
@@ -66,21 +95,12 @@ class BasicModel(L.LightningModule):
         this will result in initializing the model on all GPUs.
         docs: https://lightning.ai/docs/pytorch/stable/advanced/model_parallel/fsdp.html#speed-up-model-initialization
         """
-
-    # --------------------- internal / custom methods ---------------------
-
-    def get_batch_metrics(
-        self, 
-        batch: Dict[str, Union[List, torch.LongTensor]], 
-        mode: str=None
-    ) -> Tuple[torch.FloatTensor, Dict]:
-        """Compute the loss and other metrics for the given batch of inputs.
+        if self.policy is None:
+            self.policy = instantiate(self.config.model, instantiate_module=False)
+            if self.config.model.hf_model_name_or_path is not None:
+                self.policy = self.policy.from_pretrained(self.config.model.hf_model_name_or_path)
+                self.policy.to(self.device).to(self.precision)
+            else: raise ValueError("No model name or path provided")
         
-        Arg:
-            batch: dictionary of inputs for the batch (what is required will vary depending on the trainer)
-            mode: one of 'train', 'eval', 'sample'
-        """
-        raise NotImplementedError
 
-    def a_custom_method(self):
-        pass
+

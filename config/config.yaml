@@ -1,21 +1,26 @@
+defaults:
+- _self_
+- model: gemma-2-2b
+- loss: sft
+
 debug: true
 seed: 39 # random seed
+hf_token: "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"
 exp_name: 3df-s1-1015 # name for this experiment in the local run directory and on wandb
 mode: predict # mode: one of 'train', 'eval', or 'sample'
-stage: 1 # the stage of training to start from
-n_epochs: null # the number of epochs to train for; if null, must specify n_examples
 cache_dir: cache 
 ckpt_dir: outputs/ckpt
 resume_ckpt: null # the path to a checkpoint to resume training from
-# resume_ckpt: outputs/ckpt/3df-s1-1015/epoch=5-step=3850.ckpt # the path to a checkpoint to resume training from
+datasets: 
+ - ultrachatsft
 
-model:
-  module_name: model_dit.lightning.lightning_model
-  class_name: EmoLitModule
-  hf_model_name_or_path: EleutherAI/gpt-neo-2.7B
-  hf_tokenizer_name: EleutherAI/gpt-neo-2.7B
-  max_length: 1024
-  max_prompt_length: 1024
+eval_bs: 1 # 50GB/80GB
+train_bs: 1 # micro-batch size i.e. on one GPU
+shuffle: true # if need to shuffle the data
+num_workers: 8 # number of workers for data loading
+n_epochs: null
+n_examples: 1000000
+n_eval_examples: 1000
 
 logger:
     neptune_project: null # null is None, TODO, need to change accordingly
@@ -27,8 +32,8 @@ logger:
 
 # callbacks settings
 callbacks:
-  - module_name: model_dit.utils.callbacks
-    class_name: BasicCallback
+  # - module_name: model_dit.utils.callbacks
+  #   class_name: BasicCallback
     # config: config
   - module_name: lightning.pytorch.callbacks
     class_name: ModelCheckpoint
@@ -40,21 +45,15 @@ callbacks:
 trainer:
   accelerator: gpu
   strategy: ddp
-  devices: 3
-  precision: bf16
+  # fsdp_sharding_strategy: "SHARD_GRAD_OP"
+  # fsdp_state_dict_type: "full"
+  devices: 2
+  precision: bf16-mixed
   enable_checkpointing: true
   accumulate_grad_batches: 1
   gradient_clip_val: 1.0
   log_every_n_steps: 1
   val_check_interval: 32 # evaluate the model every eval_every steps
-
-# loss settings
-loss:
-  snr_gamma: 5.0
-  zero_embedding: true
-  uncond_ratio: 0.1
-  noise_offset: 0.05
-  vae_scale: 0.18215
 
 # optimizer settings
 optimizer:
@@ -76,18 +75,7 @@ optimizer:
   weight_decay: 0.0001 # the weight decay
   use_8bit_adam: false # whether to use 8-bit Adam
 
-# validation:
-#   num_steps: 20
-#   frequency: 250
-#   input_list:
-#     - /home/mustafa/data/celeba_hq_256/00000.jpg
-#     - /home/mustafa/data/celeba_hq_256/00001.jpg
-
-data:
-  test_bs: 1 # 50GB/80GB
-  train_bs: 16 # micro-batch size i.e. on one GPU
-  shuffle: true # if need to shuffle the data
-  num_workers: 8 # number of workers for data loading
+data: 
   human_prefix: "\n<|user|>\n"
   assistant_prefix: "\n<|assistant|>\n"
   human_suffix: ""
@@ -99,4 +87,5 @@ inference:
   output_dir: outputs/inference
   num_inference_steps: 20
   classifier_free_guidance: false
+
 
