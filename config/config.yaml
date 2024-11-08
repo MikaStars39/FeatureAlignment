@@ -5,7 +5,6 @@ defaults:
 
 debug: true
 seed: 39 # random seed
-hf_token: "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"
 exp_name: 3df-s1-1015 # name for this experiment in the local run directory and on wandb
 mode: predict # mode: one of 'train', 'eval', or 'sample'
 cache_dir: cache 
