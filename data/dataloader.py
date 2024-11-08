@@ -28,7 +28,7 @@ import re
 import random
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
-from utils import rank0_print, on_rank0, delete_dict
+from lightning.pytorch.utilities import rank_zero_info
 import pandas as pd
 import numpy as np
 import json
@@ -107,10 +107,9 @@ def get_alpacaeval(split: str, human_prefix: str, human_suffix: str, assistant_p
     else:
         raise ValueError('alpacaeval is only for evaluation')
 
-    rank0_print(f'Loading AlpacaEval dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading AlpacaEval dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('tatsu-lab/alpaca_eval', split=split, trust_remote_code=True)
-    if on_rank0():
-        dataset = tqdm.tqdm(dataset, desc='Processing AlpacaEval')
+    dataset = tqdm.tqdm(dataset, desc='Processing AlpacaEval')
 
     data = Dataset('alpacaeval')
 
@@ -123,6 +122,7 @@ def get_alpacaeval(split: str, human_prefix: str, human_suffix: str, assistant_p
         data[prompt].original_prompt = row['instruction']
 
     return data
+
 
 def get_arenahard(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
     """
@@ -178,10 +178,9 @@ def get_ultrachatsft(split: str, human_prefix: str, human_suffix: str, assistant
     elif split == 'test':
         split = 'test_sft'
 
-    rank0_print(f'Loading UltraChat sft dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading UltraChat sft dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('HuggingFaceH4/ultrachat_200k', split=split)
-    if on_rank0():
-        dataset = tqdm.tqdm(dataset, desc='Processing UltraChat')
+    dataset = tqdm.tqdm(dataset, desc='Processing UltraChat')
 
     data = Dataset('ultrachat_sft')
 
@@ -217,10 +216,9 @@ def get_shp(split: str, human_prefix: str, human_suffix: str, assistant_prefix: 
     MAX_PAIRS_PER_PROMPT = 5
     MIN_SCORE_RATIO = 2
 
-    rank0_print(f'Loading SHP dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading SHP dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('stanfordnlp/SHP', split=split)
-    if on_rank0():
-        dataset = tqdm.tqdm(dataset, desc='Processing SHP')
+    dataset = tqdm.tqdm(dataset, desc='Processing SHP')
 
     data = Dataset('shp')
 
@@ -275,12 +273,11 @@ def get_hh(split: str, human_prefix: str, human_suffix: str, assistant_prefix: s
         dataset = datasets.load_dataset('Anthropic/hh-rlhf', split=split, data_dir="harmless-base")
         data = Dataset('Anthropic-HH-harmless')
     else:
-        rank0_print(f'Loading HH dataset ({split} split) from Huggingface...')
+        rank_zero_info(f'Loading HH dataset ({split} split) from Huggingface...')
         dataset = datasets.load_dataset('Anthropic/hh-rlhf', split=split)
         data = Dataset('Anthropic-HH')
         
-    if on_rank0():
-        dataset = tqdm.tqdm(dataset, desc='Processing HH')
+    dataset = tqdm.tqdm(dataset, desc='Processing HH')
 
     def split_prompt_and_responses(ex):
         search_term = '\n\nAssistant: '
@@ -328,12 +325,12 @@ def get_hh(split: str, human_prefix: str, human_suffix: str, assistant_prefix: s
 
 
 def get_hh_helpful(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
-    rank0_print(f'Loading helpful HH dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading helpful HH dataset ({split} split) from Huggingface...')
     return get_hh(split, human_prefix, human_suffix, assistant_prefix, assistant_suffix, only_helpful=True)
 
 
 def get_hh_harmless(split: str, human_prefix: str, human_suffix: str, assistant_prefix: str, assistant_suffix: str) -> Dataset:
-    rank0_print(f'Loading harmless HH dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading harmless HH dataset ({split} split) from Huggingface...')
     return get_hh(split, human_prefix, human_suffix, assistant_prefix, assistant_suffix, only_harmless=True)
 
 
@@ -355,7 +352,7 @@ def get_oasst(split: str, human_prefix: str, human_suffix: str, assistant_prefix
     Returns:   
         A Dataset instance.
     """
-    rank0_print(f'Loading OASST dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading OASST dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('OpenAssistant/oasst1', split=('validation' if split == 'test' else 'train'))
     dataset = dataset.filter(lambda x: x['lang'] == 'en')
 
@@ -431,10 +428,9 @@ def get_ultrabin(split: str, human_prefix: str, human_suffix: str, assistant_pre
     else:
         raise ValueError()
     
-    rank0_print(f'Loading Ultra Binarized dataset ({split} split) from Huggingface...')
+    rank_zero_info(f'Loading Ultra Binarized dataset ({split} split) from Huggingface...')
     dataset = datasets.load_dataset('HuggingFaceH4/ultrafeedback_binarized', split=split)
-    if on_rank0():
-        dataset = tqdm.tqdm(dataset, desc='Processing Ultrachat Binarized')
+    dataset = tqdm.tqdm(dataset, desc='Processing Ultrachat Binarized')
 
     data = Dataset('ultrabin')
 
@@ -453,7 +449,7 @@ def get_ultrabin(split: str, human_prefix: str, human_suffix: str, assistant_pre
     return data
 
 
-class DataLoader:
+class BasicDataLoader:
     """
     The base data loader class, similar to the one from the DPO repo.
     Subclass this and overwrite the __iter__ method as needed, since the batcch elements will be different depending
@@ -595,7 +591,12 @@ class DataLoader:
   
         return batch_element
 
-    def combine_prompt_and_generation(self, prompt_dict: Dict, generation_dict: Dict, prefix: str='target') -> Dict:
+    def combine_prompt_and_generation(
+            self, 
+            prompt_dict: Dict, 
+            generation_dict: Dict, 
+            prefix: str='target'
+    ) -> Dict:
         """
         Tokenize the concatenated prompt and generation. 
         
@@ -631,9 +632,9 @@ class DataLoader:
         raise NotImplementedError
     
 
-class SFTDataLoader(DataLoader):
+class SFTBasicDataLoader(BasicDataLoader):
     """
-    Dataloader for supervised fine-tuning.
+    BasicDataLoader for supervised fine-tuning.
     """
     def __iter__(self):
         flat_data = []
@@ -656,7 +657,9 @@ class SFTDataLoader(DataLoader):
             for example in flat_data:
                 batch_element = self.tokenize_batch_element(
                     # control token will be None for all losses other than csft
-                    example.prompt + (self.kwargs.get('chosen_control_token') or ''),
+                    example.prompt + (
+                        self.kwargs.get('chosen_control_token') or ''
+                    ),
                     example.generations[example.sft_index],
                     example.truncation_mode
                 )
@@ -669,7 +672,7 @@ class SFTDataLoader(DataLoader):
                     batch = []
 
                     if self.n_examples is not None and example_idx >= self.n_examples:
-                        rank0_print(f'Finished generating {self.n_examples} examples on {self.split} split')
+                        rank_zero_info(f'Finished generating {self.n_examples} examples on {self.split} split')
                         done = True
                         break
 
@@ -679,9 +682,9 @@ class SFTDataLoader(DataLoader):
                 break
 
 
-class ConditionalSFTDataLoader(DataLoader):
+class ConditionalSFTBasicDataLoader(BasicDataLoader):
     """
-    Dataloader for token-conditioned SFT, in the style of Korbak et al.'s (2023) "Pretraining Models with Human
+    BasicDataLoader for token-conditioned SFT, in the style of Korbak et al.'s (2023) "Pretraining Models with Human
     Feedback."
 
     For training, each output is prepended with a control token denoting whether it's desirable or undesirable
@@ -746,7 +749,7 @@ class ConditionalSFTDataLoader(DataLoader):
                     batch = []
 
                     if self.n_examples is not None and example_idx >= self.n_examples:
-                        rank0_print(f'Finished generating {example_idx} examples on {self.split} split')
+                        rank_zero_info(f'Finished generating {example_idx} examples on {self.split} split')
                         done = True
                         break
 
@@ -756,9 +759,9 @@ class ConditionalSFTDataLoader(DataLoader):
                 break
 
 
-class SimpleKTODataLoader(DataLoader):
+class SimpleKTOBasicDataLoader(BasicDataLoader):
     """
-    Legacy Dataloader for the original variant of KTO that presumes access to even number of desirable and 
+    Legacy BasicDataLoader for the original variant of KTO that presumes access to even number of desirable and 
     undesirable examples in each microbatch.. 
 
     Each batch contains half (x, desired output y) and half (x, undesired output y), where no x should appear 
@@ -815,7 +818,7 @@ class SimpleKTODataLoader(DataLoader):
                     batch = []
 
                     if self.n_examples is not None and example_idx >= self.n_examples:
-                        rank0_print(f'Finished generating {example_idx} examples on {self.split} split')
+                        rank_zero_info(f'Finished generating {example_idx} examples on {self.split} split')
                         done = True
                         break
 
@@ -825,9 +828,9 @@ class SimpleKTODataLoader(DataLoader):
                 break
 
 
-class UnpairedPreferenceDataLoader(DataLoader):
+class UnpairedPreferenceBasicDataLoader(BasicDataLoader):
     """
-    Dataloader for losses that do not require pairwise preferences (e.g., KTO).
+    BasicDataLoader for losses that do not require pairwise preferences (e.g., KTO).
 
     Since all the datasets have (or imply) pairwise preferences, this function assumes all preferred/dispreferred
     generations are from the desirable/undesirable conditional generations given x. 
@@ -908,7 +911,7 @@ class UnpairedPreferenceDataLoader(DataLoader):
                     batch = []
 
                     if self.n_examples is not None and example_idx >= self.n_examples:
-                        rank0_print(f'Finished generating {example_idx} examples on {self.split} split')
+                        rank_zero_info(f'Finished generating {example_idx} examples on {self.split} split')
                         done = True
                         break
 
@@ -918,7 +921,7 @@ class UnpairedPreferenceDataLoader(DataLoader):
                 break
 
 
-class ScoreUnaryDataLoader(UnpairedPreferenceDataLoader):
+class ScoreUnaryBasicDataLoader(UnpairedPreferenceBasicDataLoader):
     def get_flat_data(self, prompts):
         """
         Return a flat list of examples given a list of prompts that index self.full_data.
@@ -944,9 +947,9 @@ class ScoreUnaryDataLoader(UnpairedPreferenceDataLoader):
         return flat_data
 
 
-class PrefUnaryDataLoader(UnpairedPreferenceDataLoader):
+class PrefUnaryBasicDataLoader(UnpairedPreferenceBasicDataLoader):
     """
-    Dataloader for training on only one output per input.
+    BasicDataLoader for training on only one output per input.
     This throws out at least half the data (more than half if there are multiple pairs per input).
     For this reason, this should ONLY be used for training.
     """
@@ -976,9 +979,9 @@ class PrefUnaryDataLoader(UnpairedPreferenceDataLoader):
         return flat_data
 
 
-class PairedPreferenceDataLoader(DataLoader):
+class PairedPreferenceBasicDataLoader(BasicDataLoader):
     """
-    Dataloader for losses that do require pairwise preferences (e.g., DPO).
+    BasicDataLoader for losses that do require pairwise preferences (e.g., DPO).
     """
     def __iter__(self):
         flat_data = []
@@ -1005,8 +1008,22 @@ class PairedPreferenceDataLoader(DataLoader):
 
             for example, (i,j) in flat_data:
                 batch_element = {}
-                batch_element.update(self.tokenize_batch_element(example.prompt, example.generations[i], example.truncation_mode, prefix='chosen'))
-                batch_element.update(self.tokenize_batch_element(example.prompt, example.generations[j], example.truncation_mode, prefix='rejected'))
+                batch_element.update(
+                    self.tokenize_batch_element(
+                        example.prompt, 
+                        example.generations[i], 
+                        example.truncation_mode, 
+                        prefix='chosen'
+                    )
+                )
+                batch_element.update(
+                    self.tokenize_batch_element(
+                        example.prompt, 
+                        example.generations[j], 
+                        example.truncation_mode, 
+                        prefix='rejected'
+                    )
+                )
                 batch.append(batch_element)
 
                 if len(batch) >= self.batch_size:
@@ -1015,7 +1032,8 @@ class PairedPreferenceDataLoader(DataLoader):
                     batch = []
 
                     if self.n_examples is not None and example_idx >= self.n_examples:
-                        rank0_print(f'Finished {example_idx} examples on {self.split} split')
+                        rank_zero_info(f'Finished {example_idx} examples \
+                                    on {self.split} split')
                         done = True
                         break
 

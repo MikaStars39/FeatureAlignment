@@ -5,7 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download, login
 import numpy as np
-from utils import disable_dropout
+from .utils import disable_dropout
 
 
 @torch.no_grad()

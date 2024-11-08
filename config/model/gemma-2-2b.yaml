@@ -1,0 +1,9 @@
+module_name: transformers
+class_name: AutoModelForCausalLM
+hf_model_name_or_path: google/gemma-2-2b
+hf_tokenizer_name_or_path: google/gemma-2-2b
+max_length: 1024
+max_prompt_length: 1024
+use_flash_attention: true
+sae_layer_id: 25
+

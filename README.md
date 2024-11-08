@@ -1,19 +1,33 @@
-# Feature-Level Direct Preference Optimization with Sparse Constraints
+<div style="display: flex; align-items: center;">
+  <!-- Left column: Image -->
+  <div style="flex: 1; margin-right: 10px; text-align: center;">
+    <img src="assets/89F5EE60-13D9-416B-B395-8774B4350509.webp" alt="Llama Image" style="max-width: 90%; height: auto; border: none;">
+  </div>
 
-This repository introduces **Feature-Level Direct Preference Optimization (FPO)** using sparse feature-level constraints for aligning Large Language Models (LLMs) with human feedback. FPO builds upon Direct Preference Optimization (DPO) and introduces feature-level constraints through Sparse Autoencoders (SAEs) to improve efficiency and stability in the alignment process. 
+  <!-- Right column: Content -->
+  <div style="flex: 2; text-align: left; padding:2 ">
+    <div align="center">
+      <h1 style="margin: 100; padding: 30;">FeatureAlignment</h1>
+    </div>
+    <p>
+      FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
+    </p>
+  </div>
+</div>
 
-We focus on aligning models using pre-trained **Sparse Autoencoders (SAEs)** to enhance performance without overwhelming computational costs. If you're looking for an approach that's more aligned with human judgment, you've come to the right place! 😉
-
-This repository is built based on HALOS [paper](https://arxiv.org/abs/2402.01306). This repository also draws inspiration from the original [DPO repo](https://github.com/eric-mitchell/direct-preference-optimization) and preserves key design elements while adding new functionalities.
+$$
+\text{FeatureAlignment} = \text{Alignment} (\text{e.g. DPO}) + \text{Mechanistic Interpretability} (\text{e.g. SAE})
+$$
 
 ## 🎯 Key Highlights
-- Modular data loading and trainers for flexible loss function design 🎛️
-- 🆕 **Support for advanced optimization methods**, including KTO and PPO, beyond standard DPO.
-- Efficient evaluation using **GPT-4** as a judge 🧑‍⚖️.
+- Compatible with [Transformer Lens](https://github.com/TransformerLensOrg/TransformerLens), [SAE Lens](https://github.com/jbloomAus/SAELens) and [Transformers](https://github.com/huggingface/transformers).
+- Support multiple alignment methods e.g. DPO, SimPO, TDPO, ORPO.
+- Pytorch Lightning + Hydra + WandB / Neupton for easy training.
+- Template for customizing alignment methods.
+
+
 
 ## ⚡ Quick Start
-
-Ready to jump in? Here's how you get started:
 
 ### 1. 📦 Setting Up the Environment
 
@@ -47,12 +61,11 @@ def get_custom_dataset(split: str, ...):
 
 ### 3. 🧑‍💻 Creating a Custom Trainer
 
-It's time to customize your trainer! 🎯 Here's a simple example based on our FPO:
+It's time to customize your trainer! 🎯 Here's a simple example
 
 ```python
-class CustomFPOTrainer(UnpairedPreferenceTrainer):
+class CustomTrainer(UnpairedPreferenceTrainer):
     def loss(self, chosen_logps, rejected_logps, ref_chosen_logps, ref_rejected_logps):
-        # Define your own loss here
         return loss
 ```
 
@@ -65,7 +78,7 @@ Want more flexibility? Extend this for your own **Human-Aware Loss Functions (HA
 Train your model on datasets like SHP, HH, or OpenAssistant with one simple command:
 
 ```bash
-python train.py loss=fpo model=gemma-2-2b datasets=[shp,hh,oasst] exp_name=my_experiment mode=train ++cache_dir=/data/models
+python train.py loss=kto model=llama7b datasets=[shp,hh,oasst] exp_name=my_experiment mode=train ++cache_dir=/data/models
 ```
 
 Your model will be saved to `/data/models/my_experiment/LATEST/policy.pt` 🎯.

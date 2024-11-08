@@ -1,8 +1,5 @@
-# Copyright (c) 2023 Contextual AI, Inc.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
+from importlib import import_module
+from omegaconf import DictConfig
 import os
 import getpass
 from datetime import datetime
@@ -16,6 +13,17 @@ import socket
 import os
 from typing import Dict, Union, Type, List
 from collections.abc import Mapping
+
+
+def instantiate(config: DictConfig, instantiate_module=True):
+    """Get arguments from config."""
+    module = import_module(config.module_name)
+    class_ = getattr(module, config.class_name)
+    if instantiate_module:
+        init_args = {k: v for k, v in config.items() if k not in ["module_name", "class_name"]}
+        return class_(**init_args)
+    else:
+        return class_
 
 
 def deepcopy_fsdp_models(src, tgt):

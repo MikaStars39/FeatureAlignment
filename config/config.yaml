@@ -1,0 +1,91 @@
+defaults:
+- _self_
+- model: gemma-2-2b
+- loss: sft
+
+debug: true
+seed: 39 # random seed
+hf_token: "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"
+exp_name: 3df-s1-1015 # name for this experiment in the local run directory and on wandb
+mode: predict # mode: one of 'train', 'eval', or 'sample'
+cache_dir: cache 
+ckpt_dir: outputs/ckpt
+resume_ckpt: null # the path to a checkpoint to resume training from
+datasets: 
+ - ultrachatsft
+
+eval_bs: 1 # 50GB/80GB
+train_bs: 1 # micro-batch size i.e. on one GPU
+shuffle: true # if need to shuffle the data
+num_workers: 8 # number of workers for data loading
+n_epochs: null
+n_examples: 1000000
+n_eval_examples: 1000
+
+logger:
+    neptune_project: null # null is None, TODO, need to change accordingly
+    neptune_api_token: null # TODO
+    wandb:
+      enabled: true     # wandb configuration
+      entity: null
+      project: "3D-Full-Attention"
+
+# callbacks settings
+callbacks:
+  # - module_name: model_dit.utils.callbacks
+  #   class_name: BasicCallback
+    # config: config
+  - module_name: lightning.pytorch.callbacks
+    class_name: ModelCheckpoint
+    dirpath: ${ckpt_dir}/${exp_name} # where to save the checkpoints
+    every_n_train_steps: 50 # how often to save checkpoints
+    # filename: run_name + '{epoch}-{step}' # the filename for the checkpoints
+    save_top_k: -1 # -1, save all checkpoints
+
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  # fsdp_sharding_strategy: "SHARD_GRAD_OP"
+  # fsdp_state_dict_type: "full"
+  devices: 2
+  precision: bf16-mixed
+  enable_checkpointing: true
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  log_every_n_steps: 1
+  val_check_interval: 32 # evaluate the model every eval_every steps
+
+# optimizer settings
+optimizer:
+  lr: 5e-7 # the learning rate
+  warmup_steps: 150 # number of linear warmup steps for the learning rate
+  adam_beta1: 0.9 # beta1 for the Adam optimizer
+  adam_beta2: 0.95 # beta2 for the Adam optimizer
+  adam_epsilon: 1.0e-08 # epsilon for the Adam optimizer
+  enable_xformers_memory_efficient_attention: true # whether to use the memory-efficient implementation of the attention layer
+  gradient_accumulation_steps: 1 # number of steps to accumulate gradients over
+  gradient_checkpointing: false # whether to use gradient checkpointing
+  lr_scheduler: constant # the learning rate scheduler
+  lr_warmup_steps: 1 # the number of warmup steps for the learning rate
+  max_grad_norm: 1.0 # the maximum gradient norm
+  max_train_steps: 300000 # the maximum number of training steps
+  max_epochs: 1e9 # set a maximum number of epochs to train for
+  mixed_precision: bf16 # the mixed precision mode
+  scale_lr: false # whether to scale the learning rate
+  weight_decay: 0.0001 # the weight decay
+  use_8bit_adam: false # whether to use 8-bit Adam
+
+data: 
+  human_prefix: "\n<|user|>\n"
+  assistant_prefix: "\n<|assistant|>\n"
+  human_suffix: ""
+  assistant_suffix: ""
+  frac_unique_desirable: 1.0
+  frac_unique_undesirable: 1.0 # for imbalance study
+
+inference:
+  output_dir: outputs/inference
+  num_inference_steps: 20
+  classifier_free_guidance: false
+
+

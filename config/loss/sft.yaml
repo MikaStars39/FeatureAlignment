@@ -1,0 +1,11 @@
+# Supervised Finetuning
+name: sft
+use_reference_model: false
+
+dataloader: 
+  module_name: data.dataloader
+  class_name: SFTBasicDataLoader
+
+model:
+  module_name: feature_alignment.model.sft
+  class_name: SFTModel

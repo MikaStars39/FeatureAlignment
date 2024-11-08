@@ -1,0 +1,13 @@
+# Direct Preference Optimization
+name: tdpo2
+
+# beta: Temperature parameter for the TDPO loss, typically something in the range of 0.1 to 0.5. We ignore the reference model as beta -> 0.
+# alpha: Temperature parameter for the TDPO loss, used to adjust the impact of sequential kl divergence.
+beta: 0.1
+alpha: 0.5
+
+trainer: TDPO2Trainer
+
+dataloader: PairedPreferenceDataLoader
+
+use_reference_model: true
