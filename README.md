@@ -8,7 +8,9 @@
     <a href="https://github.com/huggingface/trl/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/huggingface/trl.svg?color=blue"></a>
 </p>
 <p>
-  FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
+  FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features. Traditional alignment methods in the past focused on the explicit outputs of LLMs, such as logits.
+  
+  In contrast, we are more interested in leveraging the inherent interpretable features of LLMs for alignment.
 </p>
 
 $$
@@ -21,13 +23,16 @@ $$
 - Pytorch Lightning + Hydra + WandB / Neupton for easy training.
 - Template for customizing alignment methods.
 
+> [!REMINDER]
+> This repository is still in a stage of rapid updates and development, and we welcome any pull requests and suggestions. If you would like to add your method to this repository, please feel free to contact us directly.
+
 ## Methods Supported
 
 | Method                                     | Support |
 |--------------------------------------------|---------|
-| [DPO](https://arxiv.org/abs/2305.18290)   | ✅       |
-| [SimPO](https://arxiv.org/abs/2405.14734) | ✅       |
-| [TDPO](https://arxiv.org/abs/2404.11999)                                   | ✅       |
+| DPO ([https://arxiv.org/abs/2305.18290](https://arxiv.org/abs/2305.18290))   | ✅       |
+| SimPO ([https://arxiv.org/abs/2405.14734](https://arxiv.org/abs/2405.14734)) | ✅       |
+| TDPO ([https://arxiv.org/abs/2404.11999O](https://arxiv.org/abs/2404.11999))                                   | ✅       |
 | SFT                                        | ✅       |
 | FPO                                        | ✅       |
 | ORPO                                       | -       |
@@ -35,9 +40,9 @@ $$
 
 ## ⚡ Quick Start
 
-### 1. 📦 Setting Up the Environment
+### 1. Setting Up the Environment
 
-First things first, you'll need to set up the environment. We've got you covered!
+First things first, you'll need to set up the environment.
 
 ```bash
 conda env create -f environment.yml
@@ -53,9 +58,40 @@ conda install pytorch==2.1.1 pytorch-cuda=12.1 -c pytorch -c nvidia
 pip3 install flash-attn==2.3.3 transformers==4.35.2 datasets hydra-core==1.3.2 wandb==0.15.3 openai==1.6.1 accelerate==0.21.0 tensor-parallel==1.2.4
 ```
 
-### 2. 📊 Dataset Loading
+### 2. Project Structure
 
-Want to load your own dataset? Add a function to `dataloader.py` like this:
+Before starting training or testing, let's go over the overall structure of the project files.
+
+```
+benchmark
+config
+data
+scripts
+feature_alignment
+  ├── model
+  ├── sae
+  ├── transformers_model
+  ├── utils
+train.py
+test.py
+```
+
+- The `benchmark` folder stores information related to benchmarks, such as the JSON files for ArenaHard questions.
+- The `config` folder contains YAML files needed to manage training parameters.
+- `data` handles the processing and loading of training data.
+- `feature_alignment` is the main directory containing the code for training and testing. 
+  - The `sae` subdirectory includes files related to sparse autoencoder models.
+  - The `model` folder contains the Lightning Module framework for training.
+  - `utils` includes other general utility functions.
+  - The `transformers_model` directory has Hugging Face-structured model files (e.g., `modeling_xx`) to support custom models.
+- `outputs` is used to store generated outputs.
+- `train.py` and `test.py` are the main entry points for training and testing.
+
+---
+
+### 3. Creating a Custom Dataset (if needed)
+
+Want to load your own dataset? Add a function to dataloader.py like this:
 
 ```python
 def get_custom_dataset(split: str, ...):
@@ -63,31 +99,43 @@ def get_custom_dataset(split: str, ...):
     return Dataset
 ```
 
+Then, add your dataset to the yaml config:
+
+```yaml 
+datasets: 
+ - ultrabin
+ - # [your custom dataset]
+```
+We support multiple datasets like SHP, HH, and Ultrachat. You can check the available datasets in the `data/dataloader.py`.
+
 ---
 
-### 3. 🧑‍💻 Creating a Custom Trainer
+### 4. Creating a Custom Model (if needed)
 
-It's time to customize your trainer! 🎯 Here's a simple example
+It's time to customize your method. If you want to support a new alignment method, you can try creating your own Lightning Module for training in `feature_alignment/model/your_custom_model.py`:
 
 ```python
-class CustomTrainer(UnpairedPreferenceTrainer):
-    def loss(self, chosen_logps, rejected_logps, ref_chosen_logps, ref_rejected_logps):
-        return loss
+class CustomOModel(DPOModel):
+  def a_method(self, ...):
+    # Your method logic here
+    return loss
+  def get_batch_metrics(self, ...):
+    # Your metrics logic here
+    return loss, metrics
 ```
-
-Want more flexibility? Extend this for your own **Human-Aware Loss Functions (HALOs)**!
+Please note that this is actually not "creating a model" but rather "creating a method". We recommend using the existing models as a template and replacing the method logic with your own.
 
 ---
 
-### 4. 🚀 Training Your Model
+### 5. 🚀 Training Your Model
 
 Train your model on datasets like SHP, HH, or OpenAssistant with one simple command:
 
 ```bash
-python train.py loss=kto model=llama7b datasets=[shp,hh,oasst] exp_name=my_experiment mode=train ++cache_dir=/data/models
+python train.py loss=sft model=llama7b
 ```
 
-Your model will be saved to `/data/models/my_experiment/LATEST/policy.pt` 🎯.
+Override the default parameters by specifying them in the command line. 
 
 ---
 
@@ -105,33 +153,11 @@ And evaluate those samples with **GPT-4** using:
 python compare.py -f samples/my_experiment.json -mc 512 -bk chosen -ck policy -r results.jsonl
 ```
 
-🎉 Boom! You're now generating aligned models like a pro.
-
----
-
-## 🎉 Why FPO?
-
-💡 **Why choose FPO?**
-- **Scalable** from 1B to 30B models 💪.
-- Built-in support for feature-level optimization through **Sparse Autoencoders** 🤖.
-- 🧠 **Human feedback** incorporated more naturally through novel loss functions.
-
----
-
-## 🛠️ FAQs
-
-1. **Multi-node training support?**
-   - Not yet! Currently, we support single-node training (8 x A100 GPUs). Stay tuned! 🔜
-
-2. **How can I save checkpoints?**
-   - Add `++config.intermediate_checkpoints=true` to save intermediate checkpoints.
-
-3. **Where can I find the models?**
-   - You can find the full suite of models on Huggingface (see the table below).
-
 ---
 
 ## 📚 Citation
+
+This project is built on top of [HALOs](https://github.com/ContextualAI/HALOs) and [Hydra-lightning](https://github.com/ashleve/lightning-hydra-template).
 
 If you find this repo or our paper useful, please feel free to cite us:
 
@@ -141,4 +167,3 @@ TODO
 
 ---
 
-Thanks for checking out our repo! 🙌 Feel free to contribute or raise any issues you encounter!

@@ -12,7 +12,7 @@ ckpt_dir: outputs/ckpt
 resume_ckpt: null # the path to a checkpoint to resume training from
 datasets: 
  - ultrabin
-hf_token: "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"
+hf_token: null 
 eval_bs: 1 # 50GB/80GB
 train_bs: 1 # micro-batch size i.e. on one GPU
 shuffle: true # if need to shuffle the data
