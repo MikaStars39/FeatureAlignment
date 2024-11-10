@@ -14,6 +14,10 @@ import os
 from typing import Dict, Union, Type, List
 from collections.abc import Mapping
 
+def detach_float_metrics(metrics: Dict[str, torch.Tensor]) -> Dict[str, float]:
+    for k, v in metrics.items():
+        metrics[k] = v.float().detach()
+    return metrics
 
 def instantiate(config: DictConfig, instantiate_module=True):
     """Get arguments from config."""

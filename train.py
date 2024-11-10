@@ -114,7 +114,7 @@ def main(config: DictConfig):
         logger=logger,
     )
 
-    # # ----------------- load model ---------------------
+    # ----------------- load model ---------------------
     module = instantiate(config.loss.model, instantiate_module=False)
     rank_zero_info(f"Loading model from {config.loss.model.module_name}.{config.loss.model.class_name}")
     if config.resume_ckpt is not None:

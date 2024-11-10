@@ -979,7 +979,7 @@ class PrefUnaryBasicDataLoader(UnpairedPreferenceBasicDataLoader):
         return flat_data
 
 
-class PairedPreferenceBasicDataLoader(BasicDataLoader):
+class PairedPreferenceDataLoader(BasicDataLoader):
     """
     BasicDataLoader for losses that do require pairwise preferences (e.g., DPO).
     """

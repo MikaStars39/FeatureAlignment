@@ -43,9 +43,13 @@ def get_batch_logps(
 
 
 class SFTModel(BasicModel):
+
     def training_step(self, batch: Dict, batch_idx: int) -> torch.Tensor:
         
-        return self.get_batch_metrics(batch, mode="train")
+        metrics = self.get_batch_metrics(batch, mode="train")
+        self.log_dict(metrics, sync_dist=True)
+        self.log("loss", metrics["loss"], prog_bar=True, on_step=True)
+        return metrics
         
     def get_batch_metrics(
         self, 

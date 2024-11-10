@@ -89,12 +89,18 @@ class BasicModel(L.LightningModule):
             self.precision = torch.float16
         else: self.precision = torch.float32
 
+        self.configure_sae()
+    
+    def configure_sae(self):
+        pass
+
     def configure_model(self):
         """
         Get the trainable models. Don't use self.xxx = xxx in __init__ because
         this will result in initializing the model on all GPUs.
         docs: https://lightning.ai/docs/pytorch/stable/advanced/model_parallel/fsdp.html#speed-up-model-initialization
         """
+        # policy model / or just the model for sft
         if self.policy is None:
             self.policy = instantiate(self.config.model, instantiate_module=False)
             if self.config.model.hf_model_name_or_path is not None:
@@ -102,5 +108,15 @@ class BasicModel(L.LightningModule):
                 self.policy.to(self.device).to(self.precision)
             else: raise ValueError("No model name or path provided")
         
+        # reference model
+        if self.config.loss.use_reference_model:
+            self.reference_model = instantiate(self.config.model, instantiate_module=False)
+            if self.config.model.hf_model_name_or_path is not None:
+                self.reference_model = self.reference_model.from_pretrained(self.config.model.hf_model_name_or_path)
+                self.reference_model.to(self.device).to(self.precision)
+            else: raise ValueError("No model name or path provided")
 
+            # freeze the reference model
+            for param in self.reference_model.parameters():
+                param.requires_grad = False
 

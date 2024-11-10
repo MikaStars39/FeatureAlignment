@@ -4,6 +4,9 @@
   <img src="assets/89F5EE60-13D9-416B-B395-8774B4350509.webp" alt="Llama Image" style="max-width: 200px; height: 200px; border: none;">
   <h1 style="margin: 100; padding: 30;">FeatureAlignment</h1>
 </div>
+<p align="center">
+    <a href="https://github.com/huggingface/trl/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/huggingface/trl.svg?color=blue"></a>
+</p>
 <p>
   FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features, which are extracted from Sparse AutoEncoders, enabling a more interpretable and transparent approach to model adjustment and fine-tuning.
 </p>
@@ -18,7 +21,17 @@ $$
 - Pytorch Lightning + Hydra + WandB / Neupton for easy training.
 - Template for customizing alignment methods.
 
+## Methods Supported
 
+| Method                                     | Support |
+|--------------------------------------------|---------|
+| [DPO](https://arxiv.org/abs/2305.18290)   | ✅       |
+| [SimPO](https://arxiv.org/abs/2405.14734) | ✅       |
+| [TDPO](https://arxiv.org/abs/2404.11999)                                   | ✅       |
+| SFT                                        | ✅       |
+| FPO                                        | ✅       |
+| ORPO                                       | -       |
+| KTO                                        | -       |
 
 ## ⚡ Quick Start
 

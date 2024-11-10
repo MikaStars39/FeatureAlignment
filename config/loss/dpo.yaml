@@ -1,11 +1,14 @@
 # Direct Preference Optimization
 name: dpo
+use_reference_model: true
 
 # the temperature parameter for DPO; lower values mean we care less about the reference model
 beta: 0.1
 
-trainer: DPOTrainer
+dataloader: 
+  module_name: data.dataloader
+  class_name: PairedPreferenceDataLoader
 
-dataloader: PairedPreferenceDataLoader
-
-use_reference_model: true
+model:
+  module_name: feature_alignment.model.dpo
+  class_name: DPOModel
