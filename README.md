@@ -28,15 +28,15 @@ $$
 
 ## Methods Supported
 
-| Method                                     | Support |
-|--------------------------------------------|---------|
-| DPO ([https://arxiv.org/abs/2305.18290](https://arxiv.org/abs/2305.18290))   | ✅       |
-| SimPO ([https://arxiv.org/abs/2405.14734](https://arxiv.org/abs/2405.14734)) | ✅       |
-| TDPO ([https://arxiv.org/abs/2404.11999O](https://arxiv.org/abs/2404.11999))                                   | ✅       |
-| SFT                                        | ✅       |
-| FPO                                        | ✅       |
-| ORPO                                       | -       |
-| KTO                                        | -       |
+| Method | Time    | Paper                            | Official Code                                  | Support |
+|--------|---------|----------------------------------|------------------------------------------------|---------|
+| DPO    | 2023.05 | https://arxiv.org/abs/2305.18290 | [code](https://github.com/junkangwu/alpha-DPO) | ✅       |
+| KTO    | 2024.02 | https://arxiv.org/abs/2402.01306 | [code](https://github.com/junkangwu/alpha-DPO) | TODO    |
+| ORPO   | 2024.03 | https://arxiv.org/abs/2403.07691 | [code](https://github.com/junkangwu/alpha-DPO) | TODO    |
+| TDPO   | 2024.04 | https://arxiv.org/abs/2404.11999 | [code](https://github.com/junkangwu/alpha-DPO) | ✅       |
+| SimPO  | 2024.05 | https://arxiv.org/abs/2405.14734 | [code](https://github.com/junkangwu/alpha-DPO) | ✅       |
+| α-DPO  | 2024.10 | https://arxiv.org/abs/2410.10148 | [code](https://github.com/junkangwu/alpha-DPO) | TODO    |
+| FPO    | 2024.10 | -                                | [code](https://github.com/junkangwu/alpha-DPO) | ✅       |
 
 ## ⚡ Quick Start
 
