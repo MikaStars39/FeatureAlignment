@@ -4,8 +4,13 @@
   <img src="assets/89F5EE60-13D9-416B-B395-8774B4350509.webp" alt="Llama Image" style="max-width: 200px; height: 200px; border: none;">
   <h1 style="margin: 100; padding: 30;">FeatureAlignment</h1>
 </div>
+
 <p align="center">
     <a href="https://github.com/huggingface/trl/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/huggingface/trl.svg?color=blue"></a>
+    <a href="https://github.com/MikaStars39/FeatureAlignment/blob/main/assets/qrcode_1731259533808.jpg"><img alt="Static Badge" src="https://img.shields.io/badge/QQ-join_group-red"></a>
+    <img alt="Static Badge" src="https://img.shields.io/badge/paper-arxiv-yellow">
+    <img alt="Static Badge" src="https://img.shields.io/badge/discord-join-purple">
+
 </p>
 <p>
   FeatureAlignment is a tool designed to enhance the alignment of large language models (LLMs) by leveraging the power of interpretability. The core idea behind this repository is to align models through meaningful features. Traditional alignment methods in the past focused on the explicit outputs of LLMs, such as logits.
@@ -26,7 +31,11 @@ $$
 > [!REMINDER]
 > This repository is still in a stage of rapid updates and development, and we welcome any pull requests and suggestions. If you would like to add your method to this repository, please feel free to contact us directly.
 
-## Methods Supported
+## Supports
+
+<div align="center">
+
+### Alignment Methods Supported
 
 | Method                                     | Support |
 |--------------------------------------------|---------|
@@ -37,6 +46,17 @@ $$
 | FPO                                        | ✅       |
 | ORPO                                       | -       |
 | KTO                                        | -       |
+
+### SAE Models Supported
+| Model                 |     Type    |                                                         Paper / blog                                                         |                            Code                           |                      Huggingface                     | Support |
+|-----------------------|:-----------:|:----------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------:|:-------:|
+| Gemma-Scope (Gemma-2) | Base / Chat |                                               https://arxiv.org/abs/2408.05147                                               |      [JumpReLU](https://github.com/erichson/JumpReLU)     |       https://huggingface.co/google/gemma-scope      |    ✅    |
+| LLaMA-Scope (LLaMA-3) |     Base    |                                               https://arxiv.org/abs/2410.20526                                               |                             -                             |        https://huggingface.co/fnlp/Llama-Scope       |    -    |
+| Qwen 1.5 0.5B         | Base / Chat | [Alignment Forum](https://www.alignmentforum.org/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) | [SAE Transfer](https://github.com/ckkissane/sae-transfer) |                           -                          |    -    |
+| Mistral-7B            | Base / Chat | [Alignment Forum](https://www.alignmentforum.org/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) | [SAE Transfer](https://github.com/ckkissane/sae-transfer) |                           -                          |    -    |
+| LLaMA-3-8B            | Base        | -                                                                                                                            | [EleutherAI SAE](https://github.com/EleutherAI/sae)       | https://huggingface.co/EleutherAI/sae-llama-3-8b-32x |    -    |
+
+</div>
 
 ## ⚡ Quick Start
 
