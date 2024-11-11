@@ -50,12 +50,11 @@ $$
 ### SAE Models Supported
 | Model                 |     Type    |                                                         Paper / blog                                                         |                            Code                           |                      Huggingface                     | Support |
 |-----------------------|:-----------:|:----------------------------------------------------------------------------------------------------------------------------:|:---------------------------------------------------------:|:----------------------------------------------------:|:-------:|
-| Gemma-Scope (Gemma-2) | Base / Chat |                                               https://arxiv.org/abs/2408.05147                                               |      [JumpReLU](https://github.com/erichson/JumpReLU)     |       https://huggingface.co/google/gemma-scope      |    ✅    |
-| LLaMA-Scope (LLaMA-3) |     Base    |                                               https://arxiv.org/abs/2410.20526                                               |                             -                             |        https://huggingface.co/fnlp/Llama-Scope       |    -    |
+| Gemma-Scope (Gemma-2) | Base / Chat |                                           [ArXiv](https://arxiv.org/abs/2408.05147)                                          |      [JumpReLU](https://github.com/erichson/JumpReLU)     |       https://huggingface.co/google/gemma-scope      |    ✅    |
+| LLaMA-Scope (LLaMA-3) |     Base    |                                           [ArXiv](https://arxiv.org/abs/2410.20526)                                          |                             -                             |        https://huggingface.co/fnlp/Llama-Scope       |    -    |
 | Qwen 1.5 0.5B         | Base / Chat | [Alignment Forum](https://www.alignmentforum.org/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) | [SAE Transfer](https://github.com/ckkissane/sae-transfer) |                           -                          |    -    |
 | Mistral-7B            | Base / Chat | [Alignment Forum](https://www.alignmentforum.org/posts/fmwk6qxrpW8d4jvbd/saes-usually-transfer-between-base-and-chat-models) | [SAE Transfer](https://github.com/ckkissane/sae-transfer) |                           -                          |    -    |
 | LLaMA-3-8B            | Base        | -                                                                                                                            | [EleutherAI SAE](https://github.com/EleutherAI/sae)       | https://huggingface.co/EleutherAI/sae-llama-3-8b-32x |    -    |
-
 </div>
 
 ## ⚡ Quick Start
