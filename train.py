@@ -23,26 +23,24 @@ Remember to allocate enough RAM before running this (you need aroundd 800 GB for
 import torch
 torch.backends.cuda.matmul.allow_tf32 = True
 import torch.nn as nn
-from src.utils import disable_dropout, init_distributed, get_open_port
+from feature_alignment.utils import disable_dropout, init_distributed, get_open_port
 import os
 import hydra
 import torch.multiprocessing as mp
+from data import dataloader
 from omegaconf import OmegaConf, DictConfig
 import wandb
 import json
 import socket
 from typing import Optional, Set
 import resource
-from src.models import AutoModelForCausalLMWithValueHead
+from feature_alignment.models import AutoModelForCausalLMWithValueHead
 from transformers import AutoModelForCausalLM, AutoTokenizer, set_seed
-import torch.distributed as dist
-import numpy as np
-import random
-from src import dataloader, trainers
+from feature_alignment import trainers
 import gc
-from src.utils import delete_dict
+from feature_alignment.utils import delete_dict
 from huggingface_hub import login
-from src.feature_map import get_feature_map
+from feature_alignment.feature_map import get_feature_map
 
 
 def worker_main(
@@ -84,7 +82,8 @@ def worker_main(
 
     trainer.train()
     trainer.save()
-    
+
+
 
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(config: DictConfig):
@@ -135,34 +134,34 @@ def main(config: DictConfig):
         reference_kwargs['device_map'] = 'balanced'
 
     print('building policy')
-    model_class = AutoModelForCausalLMWithValueHead if config.loss.name == 'ppo' else AutoModelForCausalLM
+    model_class = AutoModelForCausalLMWithValueHead if config.loss.name == 'ppo' \
+        else AutoModelForCausalLM
 
-    if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
-        from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
-        policy = Gemma2ForCausalLM.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
-    else:
-        policy = model_class.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **policy_kwargs)
+    policy = model_class.from_pretrained(
+        config.model.name_or_path, 
+        low_cpu_mem_usage=True, 
+        use_flash_attention_2=config.model.use_flash_attention, 
+        **policy_kwargs
+    )
     disable_dropout(policy)
 
     if config.loss.use_reference_model:
         print('building reference model')
-        if config.loss.name == 'tdpo-kl' or config.loss.name == 'simpo':
-            from transformers_model.modeling_gemma2 import Gemma2ForCausalLM
-            reference_model = Gemma2ForCausalLM.from_pretrained(
-                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
-        else:
-            reference_model = AutoModelForCausalLM.from_pretrained(
-                config.model.name_or_path, low_cpu_mem_usage=True, use_flash_attention_2=config.model.use_flash_attention, **reference_kwargs)
+        reference_model = AutoModelForCausalLM.from_pretrained(
+            config.model.name_or_path, 
+            low_cpu_mem_usage=True, 
+            use_flash_attention_2=config.model.use_flash_attention, 
+            **reference_kwargs
+        )
         disable_dropout(reference_model)
     else:
         reference_model = None
 
-    if config.model.load_from is not None:
-        state_dict = torch.load(os.path.join(config.cache_dir, config.model.load_from), map_location='cpu')
+    if config.checkpoint_path is not None:
+        state_dict = torch.load(config.checkpoint_path, map_location='cpu')
         step, metrics = state_dict['step_idx'], state_dict['metrics']
-        print(f'loading pre-trained weights at step {step} from {config.model.load_from} with metrics {json.dumps(metrics, indent=2)}')
+
+        print(f'loading pre-trained weights at step {step} from {config.checkpoint_path} with metrics {json.dumps(metrics, indent=2)}')
 
         if config.loss.name == 'ppo':
             policy.pretrained_model.load_state_dict(state_dict['state'])
@@ -207,25 +206,6 @@ def main(config: DictConfig):
             cache_dir=".cache",
             release=True,
         )
-
-        # # register chosen feature map into the policy
-        # policy.register_buffer("chosen_fm", chosen_fm)
-        # print("Feature map registered into the policy")
-        # reference_model.register_buffer("chosen_fm", chosen_fm)
-        # print("Feature map registered into the reference model")
-        
-        # chosen_fm = chosen_fm.to(torch.bfloat16).to(policy.device)
-
-        # import sae encoder
-        # load .cache/fm.pt into policy.fm
-        # policy.chosen_fm = torch.load(".cache/chosen_fm.pt").to(policy.device)
-        # policy.rejected_fm = torch.load(".cache/rejected_fm.pt").to(policy.device)
-        # print("Feature map loaded into the policy")
-
-        # init a fm in policy
-
-            # check if policy.model.layers[config.model.sae_layer_id].sae_encoder does not have any learnable parameters
-            
 
     print(f"{num_added} special tokens added")
 

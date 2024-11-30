@@ -14,7 +14,7 @@ mode: ???
 debug: false
 
 # whether to use FSDP
-use_fsdp: false
+use_fsdp: true
 
 # the port to use for FSDP
 fsdp_port: null
@@ -28,9 +28,9 @@ wandb:
 # where trained models will be saved
 # use HF environmental variables to control where the datasets, pretrained Huggingface models, etc. are saved 
 # relevant HF env variables are TRANSFORMERS_CACHE, HF_DATASETS_CACHE, HF_MODULES_CACHE, HF_METRICS_CACHE
-cache_dir: cache 
+cache_dir: .cache 
 
-local_run_dir: ${cache_dir}/${exp_name}
+local_run_dir: outputs/${exp_name}
 
 # whether to eval at the very beginning of training
 do_first_eval: true
@@ -38,9 +38,9 @@ do_first_eval: true
 # prevent wandb from logging more than once per minimum_log_interval_secs
 minimum_log_interval_secs: 1.0
 
-intermediate_checkpoints: false
-
+intermediate_checkpoints: true
 activation_checkpointing: true
+checkpoint_path: null
 
 defaults:
 - _self_
@@ -63,10 +63,10 @@ n_epochs: 1
 n_examples: null
 
 # The optimizer to use; we use RMSprop because it works about as well as Adam and is more memory-efficient
-optimizer: RMSprop
+optimizer: AdamW
 
 # number of linear warmup steps for the learning rate
-warmup_steps: 150
+warmup_steps: 1000
 
 # evaluate and save model every eval_every steps
 eval_every: 2000
