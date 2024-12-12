@@ -184,7 +184,7 @@ If you find this repo or our paper useful, please feel free to cite us:
 ```bibtex
 @article{yin2024direct,
   title={Direct Preference Optimization Using Sparse Feature-Level Constraints},
-  author={Yin, Qingyu and Leong, Chak Tou and Zhang, Hongbo and Zhu, Minjun and Yan, Hanqi and Zhang, Qiang and He, Yulan and Li, Wenjie and Wang, Jun and Zhang, Yue and others},
+  author={Yin, Qingyu and Leong, Chak Tou and Zhang, Hongbo and Zhu, Minjun and Yan, Hanqi and Zhang, Qiang and He, Yulan and Li, Wenjie and Wang, Jun and Zhang, Yue and Yang, Linyi},
   journal={arXiv preprint arXiv:2411.07618},
   year={2024}
 }
