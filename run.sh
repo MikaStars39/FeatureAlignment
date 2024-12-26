@@ -1,7 +1,21 @@
 
-export XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache
-CUDA_VISIBLE_DEVICES=1 python harmful_test.py
+# export XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache
+# CUDA_VISIBLE_DEVICES=7 python patch.py
     # --model "meta-llama/Meta-Llama-3-8B-Instruct" \
     # --release "llama_scope_lxm_8x" \
     # --sae-id "l31m_8x" \
     # --device "cuda"
+
+cd /mnt/weka/hw_workspace/qy_workspace/lightning
+XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache CUDA_VISIBLE_DEVICES=6 python jailbreak.py \
+    --model_name_or_path "Qwen/Qwen2.5-7B-Instruct" \
+    --dataset_name_or_path "JailbreakBench/JBB-Behaviors" \
+    --json_path "data/jb_one_token.json" \
+    --intervene_type "attn_only" \
+    --steering_type "patching" \
+    --token_position 0 \
+    --generate_length 64 \
+    --task_name "safety"
+
+# cd /mnt/weka/hw_workspace/qy_workspace/lightning
+# XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache CUDA_VISIBLE_DEVICES=0 python find_ih.py
