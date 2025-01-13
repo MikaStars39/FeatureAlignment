@@ -93,6 +93,10 @@ def qwen_layer_forward(
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+        
+        if "early_exit" in self.intervened_type and len(self.intervened) > 0:
+            return hidden_states
+        
         residual = hidden_states
 
         hidden_states = self.input_layernorm(hidden_states)
@@ -102,7 +106,8 @@ def qwen_layer_forward(
             hidden_states, 
             self.intervened_type, 
             self.steering_method, 
-            self.token_position
+            self.token_position,
+            "attn_only"
         )
 
         # Self Attention
@@ -123,10 +128,18 @@ def qwen_layer_forward(
             residual, 
             self.intervened_type, 
             self.steering_method, 
-            self.token_position
+            self.token_position,
+            "res_attn"
         )
 
         hidden_states = residual + hidden_states
+
+        if "cos" in self.intervened_type and len(self.intervened) > 0:
+            if self.intervened_res_attn_output is None:
+                self.intervened_res_attn_output = hidden_states
+            else:
+                # get the 27th layer's refusal vector 
+                self.refusal_vector_attn = hidden_states - self.intervened_res_attn_output
 
         # Fully Connected
         residual = hidden_states
@@ -138,7 +151,8 @@ def qwen_layer_forward(
             hidden_states, 
             self.intervened_type, 
             self.steering_method, 
-            self.token_position
+            self.token_position,
+            "mlp_only"
         )
 
         hidden_states = self.mlp(hidden_states)
@@ -148,10 +162,18 @@ def qwen_layer_forward(
             residual, 
             self.intervened_type, 
             self.steering_method, 
-            self.token_position
+            self.token_position,
+            "res_mlp"
         )
 
         hidden_states = residual + hidden_states
+
+        if "cos" in self.intervened_type and len(self.intervened) > 0:
+            if self.intervened_res_mlp_output is None:
+                self.intervened_res_mlp_output = hidden_states
+            else:
+                # get the 27th layer's refusal vector 
+                self.refusal_vector_mlp = hidden_states - self.intervened_res_mlp_output
 
         outputs = (hidden_states,)
         if output_attentions:
@@ -164,7 +186,8 @@ def intervene_qwen_layer(
         pairs: list, 
         token_position: int, 
         intervened_type: str, 
-        steering_method: str
+        steering_method: str,
+        addition_coefficient: float = 0.1
     ):
     for i in range(len(model.model.layers)):
         model.model.layers[i].forward = qwen_layer_forward.__get__(
@@ -178,6 +201,7 @@ def intervene_qwen_layer(
         model.model.layers[i].intervened_type = intervened_type
         model.model.layers[i].token_position = token_position
         model.model.layers[i].steering_method = steering_method
+        model.model.layers[i].addition_coefficient = addition_coefficient
         for layer_idx, attention_head_idx in pairs:
             if layer_idx == i:
                 model.model.layers[i].intervened.append(attention_head_idx)

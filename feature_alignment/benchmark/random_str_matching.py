@@ -1,14 +1,6 @@
 import torch
 from transformer_lens import HookedTransformer
-from functools import partial
 from transformer_lens import patching
-import random
-import string
-
-from data.construct_sample_data import (
-    create_prompt_with_context,
-    get_formal,
-)
 
 def logits_to_ave_logit_diff(
     logits: torch.Tensor,
@@ -126,7 +118,7 @@ def generate_prefix(model, device, k=20):
         "corrupted_verb_token": corrupted_verb_token
     }
 
-def main():
+def find_induction_head():
     # login
     from huggingface_hub import login
     login(token="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")
@@ -175,6 +167,3 @@ def main():
     print("\nTop 20 results (layer, head, value):")
     for i in range(50):
         print(f"({rows[i]}, {cols[i]}, {top_50_values[i]:.3f})")
-
-if __name__ == "__main__":
-    main()

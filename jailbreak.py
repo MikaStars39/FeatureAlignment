@@ -36,77 +36,8 @@ def load_model_and_datasets(
 
     return model, dataloader, tokenizer
 
-def test_knowledge():
-    model, dataloader, tokenizer = load_model_and_datasets(
-        model_name="Qwen/Qwen2.5-7B-Instruct", 
-        dataset_name="JailbreakBench/JBB-Behaviors",
-    )
-
-        # Load knowledge pairs from json
-    with open("data/knowledge.json", "r") as f:
-        knowledge_pairs = json.load(f)
-    
-    results = []
-
-    for i in range(32):
-        pairs = [
-            (i, 0),
-        ]
-        clean_output = 0
-        corrupted_output = 0
-
-        # Process each knowledge pair
-        clean_results = []
-        corrupted_results = []
-
-        total_count = 0
-        for i, pair in tqdm(enumerate(knowledge_pairs)):
-            clean_input = "Directly answer the question: " + pair["clean_question"] 
-            corrupted_input = "Directly answer the question: " + pair["corrupted_question"]
-            clean_answer = pair["clean_answer"]
-            corrupted_answer = pair["corrupted_answer"]
-            
-            clean_result, corrupted_result = generation(
-                tokenizer, 
-                model, 
-                clean_input, 
-                corrupted_input, 
-                pairs,
-                clean_response=pair["clean_response"],
-                corrupted_response=pair["corrupted_response"],
-                generate_length=4,
-            )
-
-            if clean_result == "":
-                continue
-            else:
-                total_count += 1
-
-            # check if the clean answer in the clean result with lower case
-            if clean_answer.lower() in clean_result.lower():
-                clean_output += 1
-            if corrupted_answer.lower() in corrupted_result.lower():
-                corrupted_output += 1
-            
-            clean_results.append(clean_result)
-            corrupted_results.append(corrupted_result)
-            
-        # save the clean result and corrupted result in jb_outputs.json
-        with open("outputs/jb_outputs.json", "w") as f:
-            json.dump(clean_results + corrupted_results, f, indent=4, sort_keys=True)
-
-        print(f"Clean output: {clean_output / total_count}, \
-              Corrupted output: {corrupted_output / total_count}")
-        
-        results.append({
-            "clean_output": clean_output / total_count,
-            "corrupted_output": corrupted_output / total_count,
-        })
-
-    for i, result in enumerate(results):
-        print(f"Result {i}:")
-        print(result)
-        print("-" * 50)
+def test_early_exit():
+    pass
 
 def test_steering(
         model: torch.nn.Module,
@@ -117,25 +48,49 @@ def test_steering(
         intervene_type: str = "attn_only",
         token_position: int = 0,
         steering_type: str = "patching",
+        layer_num: int = 32,
+        addition_coefficient: float = 0.1
     ):
+    """ 
+        test the steering
+        model: the model to test
+        tokenizer: the tokenizer of the model
+        knowledge_pairs: the knowledge pairs to test
+        model_name_or_path: the name or path of the model
+        generate_length: the length of the generated text
+        intervene_type: the type of the intervention
+        token_position: the position of the token to intervene
+        steering_type: the type of the steering
+        layer_num: the number of layers to intervene
+        if_output_cache: whether to output the cache
+        if_load_cache: whether to load the cache
+        cache_path: the path to save the cache
+    """
 
     outputs = []
-    for i in range(32):
+    for i in range(0, layer_num):
         pairs = [
             (i, 0),
         ]
-        clean_output = []
-        corrupted_output = []
-        
+        output = []
+
         # Process each knowledge pair
         for i, pair in tqdm(enumerate(knowledge_pairs)):
             clean_input = pair["clean_question"]
             corrupted_input = pair["corrupted_question"]
 
-            clean_input = qwen_chat_template.format(clean_input, "")
-            corrupted_input = qwen_chat_template.format(corrupted_input, "")
+            # if pair has "clean_response" and "corrupted_response"
+            if "clean_response" in pair and "corrupted_response" in pair:
+                clean_response = pair["clean_response"]
+                corrupted_response = pair["corrupted_response"]
+            else:
+                clean_response = ""
+                corrupted_response = "" 
+
+            clean_input = qwen_chat_template.format(clean_input, clean_response)
+            corrupted_input = qwen_chat_template.format(corrupted_input, corrupted_response)
             
-            clean_result, corrupted_result = generation(
+            clean_result, corrupted_result, output_cache = generation(
                 tokenizer, 
                 model, 
                 model_name_or_path,
@@ -146,16 +101,16 @@ def test_steering(
                 intervene_type=intervene_type,
                 token_position=token_position,
                 steering_type=steering_type,
+                addition_coefficient=addition_coefficient
             )
 
-            clean_output.append(clean_result)
-            corrupted_output.append(corrupted_result)
+            output.append({
+                "clean_output": clean_result,
+                "corrupted_output": corrupted_result,
+                **pair
+            })
 
-        outputs.append({
-            "clean_output": clean_output,
-            "corrupted_output": corrupted_output,
-        })
-
+        outputs.append(output)
     return outputs
 
 def main(
@@ -166,7 +121,9 @@ def main(
     steering_type: str,
     token_position: int,
     generate_length: int,
+    layer_num: int,
     task_name: str,
+    addition_coefficient: float = 0.1
 ):
     # load the model and dataset
     model, dataloader, tokenizer = load_model_and_datasets(
@@ -185,14 +142,20 @@ def main(
         model_name_or_path, 
         generate_length,
         intervene_type, 
-        steering_type, 
         token_position, 
+        steering_type, 
+        layer_num,
+        addition_coefficient
     )
 
     if task_name == "safety":
         from feature_alignment.benchmark.test_safety import test_safety
-        test_safety(result)
-    
+        # json path = model_name_or_path + "_" + intervene_type + "_" + steering_type + "_" + token_position + ".json"
+        json_path = f"outputs/{model_name_or_path[:4]}_{intervene_type}_{steering_type}_{token_position}.json"
+        test_safety(result, json_path)
+    elif task_name == "knowledge":
+        from feature_alignment.benchmark.test_knowledge import test_knowledge
+        test_knowledge(result, json_path)
 
 
 # llama

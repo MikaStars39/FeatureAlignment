@@ -3,7 +3,7 @@ from transformers.models.llama.modeling_llama import apply_rotary_pos_emb, repea
 from transformers.utils import logging
 from transformers.cache_utils import Cache
 from typing import Optional, Tuple
-
+from feature_alignment.intervene.module.utils import intervene_state
 logger = logging.get_logger(__name__)
 
 def mistral_attention_forward(
@@ -88,12 +88,13 @@ def mistral_layer_forward(
 
         hidden_states = self.input_layernorm(hidden_states)
 
-        if "attn_only" in self.intervened_type and len(self.intervened) > 0:
-            if self.intervened_attn_output is None:
-                self.intervened_attn_output = hidden_states
-            elif not hasattr(self, 'read_attn_output'):
-                hidden_states = self.intervened_attn_output
-                self.read_attn_output = 1 # skip the next time
+        hidden_states = intervene_state(
+            intervene_type=self.intervened_type,
+            position=self.token_position,
+            original_state=hidden_states,
+            model=self,
+            current_position="attn",
+        )
 
         # Self Attention
         hidden_states, self_attn_weights = self.self_attn(
@@ -108,32 +109,37 @@ def mistral_layer_forward(
             **kwargs,
         )
 
-        if "res_attn" in self.intervened_type and len(self.intervened) > 0:
-            if self.intervened_res_attn_output is None:
-                self.intervened_res_attn_output = residual
-            elif not hasattr(self, 'read_res_attn_output'):
-                residual = self.intervened_res_attn_output
-                self.read_res_attn_output = 1 # skip the next time
+        residual = intervene_state(
+            intervene_type=self.intervened_type,
+            position=self.token_position,
+            original_state=residual,
+            model=self,
+            current_position="res_attn",
+        )
 
         hidden_states = residual + hidden_states
 
         # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        if "mlp" in self.intervened_type and len(self.intervened) > 0:
-            if self.intervened_mlp_output is None:
-                self.intervened_mlp_output = hidden_states
-            elif not hasattr(self, 'read_mlp_output'):
-                hidden_states = self.intervened_mlp_output
-                self.read_mlp_output = 1 # skip the next time
+        
+        hidden_states = intervene_state(
+            intervene_type=self.intervened_type,
+            position=self.token_position,
+            original_state=hidden_states,
+            model=self,
+            current_position="mlp",
+        )
 
         hidden_states = self.mlp(hidden_states)
-        if "res_mlp" in self.intervened_type and len(self.intervened) > 0:
-            if self.intervened_res_mlp_output is None:
-                self.intervened_res_mlp_output = residual
-            elif not hasattr(self, 'read_res_mlp_output'):
-                residual = self.intervened_res_mlp_output
-                self.read_res_mlp_output = 1 # skip the next time
+
+        residual = intervene_state(
+            intervene_type=self.intervened_type,
+            position=self.token_position,
+            original_state=residual,
+            model=self,
+            current_position="res_mlp",
+        )
 
         hidden_states = residual + hidden_states
 
@@ -143,7 +149,13 @@ def mistral_layer_forward(
 
         return outputs
 
-def intervene_llama_layer(model, pairs, token_position, type="attn"):
+def intervene_mistral_layer(
+        model: torch.nn.Module, 
+        pairs: list, 
+        token_position: int, 
+        intervened_type: str, 
+        steering_method: str
+    ):
     """
     Intervene attention heads with Flash Attention support for LLaMA and Mistral models.
     
@@ -158,12 +170,14 @@ def intervene_llama_layer(model, pairs, token_position, type="attn"):
         )
         model.model.layers[i].intervened = []
         model.model.layers[i].intervened_attn_output = None
-        model.model.layers[i].intervened_res_attn_output = None
         model.model.layers[i].intervened_mlp_output = None
         model.model.layers[i].intervened_res_mlp_output = None
+        model.model.layers[i].intervened_res_attn_output = None
+        model.model.layers[i].intervened_type = intervened_type
         model.model.layers[i].token_position = token_position
-        model.model.layers[i].intervened_type = type
+        model.model.layers[i].steering_method = steering_method
         for layer_idx, attention_head_idx in pairs:
             if layer_idx == i:
                 model.model.layers[i].intervened.append(attention_head_idx)
+
     return model
