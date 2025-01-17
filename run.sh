@@ -22,4 +22,4 @@
 # cd /mnt/weka/hw_workspace/qy_workspace/lightning
 # XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache CUDA_VISIBLE_DEVICES=0 python find_ih.py
 # cd /mnt/weka/hw_workspace/qy_workspace/lightning
-XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache CUDA_VISIBLE_DEVICES=6 python similarity.py
+XDG_CACHE_HOME=/mnt/weka/hw_workspace/qy_workspace/lightning/.cache CUDA_VISIBLE_DEVICES=1 python similarity.py
