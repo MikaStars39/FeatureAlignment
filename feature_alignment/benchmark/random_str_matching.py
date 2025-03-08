@@ -1,6 +1,7 @@
 import torch
 from transformer_lens import HookedTransformer
 from transformer_lens import patching
+from functools import partial
 
 def logits_to_ave_logit_diff(
     logits: torch.Tensor,
@@ -108,9 +109,6 @@ def generate_prefix(model, device, k=20):
     clean_prompt = qwen_chat_template.format(clean_prompt, first_token)
     corrupted_prompt = qwen_chat_template.format(corrupted_prompt, first_token)
 
-    print("clean prompt:", clean_prompt)
-    print("corrupted prompt:", corrupted_prompt)
-
     return {
         "clean_tokens": clean_tokens,
         "corrupted_tokens": corrupted_tokens,
@@ -118,16 +116,16 @@ def generate_prefix(model, device, k=20):
         "corrupted_verb_token": corrupted_verb_token
     }
 
-def find_induction_head():
+def find_induction_head(
+    model_name: str = "Qwen/Qwen2.5-7B-Instruct",
+    device: str = "cuda",
+    times: int = 16,
+    token: str = "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",
+):
     # login
-    from huggingface_hub import login
-    login(token="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")
-
-    # Configuration
-    # model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
-    model_name = "Qwen/Qwen2.5-7B-Instruct"
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    times = 16
+    if token:
+        from huggingface_hub import login
+        login(token=token)
 
     # set seed
     # random.seed(42)
@@ -166,4 +164,54 @@ def find_induction_head():
     # Print results in requested format
     print("\nTop 20 results (layer, head, value):")
     for i in range(50):
+        print(f"({rows[i]}, {cols[i]}, {top_50_values[i]:.3f})")
+    
+def benchmarking_repetition(
+    model_name: str = "Qwen/Qwen2.5-7B-Instruct",
+    device: str = "cuda",
+    times: int = 16,
+    token: str = "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",
+):
+    # login
+    if token:
+        from huggingface_hub import login
+        login(token=token)
+
+    # set seed
+    # random.seed(42)
+    
+    # Load model and SAE
+    model = HookedTransformer.from_pretrained(
+        model_name,
+        device=device,
+        torch_dtype=torch.bfloat16
+    )
+
+    total_result = []
+    for i in range(times):
+        prefix = generate_prefix(model, device)
+        result = patch(
+            prefix["clean_tokens"], 
+            prefix["corrupted_tokens"], 
+            prefix["clean_verb_token"], 
+            prefix["corrupted_verb_token"], 
+            model, 
+            device
+        )
+        total_result.append(result)
+    
+    # average the result
+    average_result = sum(total_result) / len(total_result)
+    
+    # Get indices of top 20 values
+    flattened = average_result.flatten()
+    top_50_values, top_50_indices = torch.topk(flattened, 50)
+    
+    # Convert flat indices to 2D indices
+    rows = top_50_indices // average_result.shape[1]
+    cols = top_50_indices % average_result.shape[1]
+    
+    # Print results in requested format
+    print("\nTop 20 results (layer, head, value):")
+    for i in range(20):
         print(f"({rows[i]}, {cols[i]}, {top_50_values[i]:.3f})")
